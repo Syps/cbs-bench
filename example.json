@@ -1,0 +1,383 @@
+[
+  {
+    "criminal": true,
+    "profession": "sleuth",
+    "name": "amy",
+    "gender": "female",
+    "orig_hint": "more_traits_in_unit_than_unit(unit(neighbor,3),unit(neighbor,13),criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3
+      ]
+    ],
+    "hint": "#NAME:3 has more criminal neighbors than #NAME:13"
+  },
+  {
+    "criminal": true,
+    "profession": "builder",
+    "name": "bobby",
+    "gender": "male",
+    "orig_hint": "number_of_traits_in_unit(unit(neighbor,14),innocent,6)",
+    "paths": [
+      [
+        8,
+        4
+      ]
+    ],
+    "hint": "#NAME:14 has exactly 6 innocent neighbors"
+  },
+  {
+    "criminal": true,
+    "profession": "singer",
+    "name": "daniel",
+    "gender": "male",
+    "orig_hint": "all_traits_are_neighbors_in_unit(unit(between,pair(12,15)),innocent)",
+    "paths": [
+      [
+        8,
+        4,
+        3
+      ]
+    ],
+    "hint": "All innocents #BETWEEN:pair(12,15) are connected"
+  },
+  {
+    "criminal": true,
+    "profession": "sleuth",
+    "name": "evie",
+    "gender": "female",
+    "orig_hint": "unit_shares_n_out_of_n_traits_with_unit(unit(neighbor,1),unit(neighbor,2),innocent,1,2)",
+    "paths": [
+      [
+        8,
+        4
+      ]
+    ],
+    "hint": "Only 1 of the 2 innocents neighboring #NAME:1 is #NAMES:2 neighbor"
+  },
+  {
+    "criminal": false,
+    "profession": "guard",
+    "name": "gary",
+    "gender": "male",
+    "orig_hint": "is_one_of_n_traits_in_unit(unit(neighbor,2),3,criminal,4)",
+    "paths": [
+      [
+        8
+      ]
+    ],
+    "hint": "#NAME:3 is one of #NAMES:2 4 criminal neighbors"
+  },
+  {
+    "criminal": false,
+    "profession": "builder",
+    "name": "hilda",
+    "gender": "female",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12,
+        9,
+        16
+      ]
+    ],
+    "hint": "Is someone helping the criminals get away with it?"
+  },
+  {
+    "criminal": true,
+    "profession": "guard",
+    "name": "isaac",
+    "gender": "male",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12,
+        9,
+        16
+      ]
+    ],
+    "hint": "I just happen to have two blind eyes. Perhaps I shouldn't be a guard?"
+  },
+  {
+    "criminal": true,
+    "profession": "guard",
+    "name": "julie",
+    "gender": "female",
+    "orig_hint": "all_traits_are_neighbors_in_unit(unit(between,pair(3,19)),criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3
+      ]
+    ],
+    "hint": "All criminals #BETWEEN:pair(3,19) are connected"
+  },
+  {
+    "criminal": false,
+    "profession": "cop",
+    "name": "karen",
+    "gender": "female",
+    "orig_hint": "is_not_only_trait_in_unit(unit(row,2),4,innocent)",
+    "paths": [],
+    "hint": "#NAME:4 is one of two or more innocents in row 2"
+  },
+  {
+    "criminal": false,
+    "profession": "sleuth",
+    "name": "logan",
+    "gender": "male",
+    "orig_hint": "odd_number_of_traits_in_unit(unit(col,3),criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12
+      ]
+    ],
+    "hint": "There's an odd number of criminals in column #C:3"
+  },
+  {
+    "criminal": true,
+    "profession": "judge",
+    "name": "mary",
+    "gender": "female",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12,
+        9,
+        16
+      ]
+    ],
+    "hint": "I just happened to cosplay a pirate. With two eye patches."
+  },
+  {
+    "criminal": false,
+    "profession": "farmer",
+    "name": "nancy",
+    "gender": "female",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12,
+        9,
+        16
+      ]
+    ],
+    "hint": "I should have become an eye doctor."
+  },
+  {
+    "criminal": false,
+    "profession": "builder",
+    "name": "pam",
+    "gender": "female",
+    "orig_hint": "units_share_odd_n_traits(unit(neighbor,14),unit(neighbor,15),innocent)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18
+      ]
+    ],
+    "hint": "#NAME:14 and #NAME:15 share an odd number of innocent neighbours"
+  },
+  {
+    "criminal": false,
+    "profession": "singer",
+    "name": "ruby",
+    "gender": "female",
+    "orig_hint": "odd_number_of_traits_in_unit(unit(between,pair(9,11)),criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14
+      ]
+    ],
+    "hint": "There's an odd number of criminals #BETWEEN:pair(9,11)"
+  },
+  {
+    "criminal": false,
+    "profession": "judge",
+    "name": "steve",
+    "gender": "male",
+    "orig_hint": "more_traits_in_unit_than_unit(unit(neighbor,16),unit(neighbor,3),innocent)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19
+      ]
+    ],
+    "hint": "#NAME:16 has more innocent neighbors than #NAME:3"
+  },
+  {
+    "criminal": false,
+    "profession": "farmer",
+    "name": "tyler",
+    "gender": "male",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        19
+      ]
+    ],
+    "hint": "Feels like all the criminals are always back the next day..."
+  },
+  {
+    "criminal": false,
+    "profession": "mech",
+    "name": "vicky",
+    "gender": "female",
+    "orig_hint": "more_traits_in_unit_than_unit(unit(neighbor,15),unit(neighbor,8),criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13,
+        18,
+        12,
+        9
+      ]
+    ],
+    "hint": "#NAME:15 has more criminal neighbors than #NAME:8"
+  },
+  {
+    "criminal": true,
+    "profession": "cop",
+    "name": "wally",
+    "gender": "male",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        19
+      ]
+    ],
+    "hint": "Me dirty? I just happened to turn my blind eye towards the crime scene!"
+  },
+  {
+    "criminal": false,
+    "profession": "mech",
+    "name": "xavi",
+    "gender": "male",
+    "orig_hint": "has_most_traits(unit(row,4),innocent)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7,
+        2,
+        0,
+        19,
+        14,
+        13
+      ]
+    ],
+    "hint": "Row 4 has more innocents than any other row"
+  },
+  {
+    "criminal": false,
+    "profession": "mech",
+    "name": "zed",
+    "gender": "male",
+    "orig_hint": "equal_traits_and_traits_in_unit(unit(profession,cop),innocent,criminal)",
+    "paths": [
+      [
+        8,
+        4,
+        3,
+        1,
+        7
+      ]
+    ],
+    "hint": "There's an equal number of innocent and criminal #PROFS:cop"
+  }
+]

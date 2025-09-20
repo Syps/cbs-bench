@@ -1,0 +1,15 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+!.cache/.gitkeep
+.cache/*
+.DS_Store
+.idea/
+.python-version
+uv.lock
+# Virtual environments
+.venv
