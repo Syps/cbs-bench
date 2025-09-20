@@ -32,6 +32,23 @@ class CellData(BaseModel):
     orig_hint: str = ""
     paths: List[List[int]] = []
 
+class Status(Enum):
+    UNKNOWN = 0
+    CRIMINAL = 1
+    INNOCENT = 2
+
+
+class PuzzleCell(BaseModel):
+    name: str
+    profession: str
+    gender: str
+    clue: str
+    status: Status = Status.UNKNOWN
+    had_mistake: bool = False
+    paths: List[List[int]] = []
+    is_criminal: bool = False
+
+
 class SerializationMethod(Enum):
     DEFAULT = "default"
 
@@ -47,6 +64,8 @@ class TestResult:
     completed: bool
     total_moves: int
     max_moves_reached: bool
+    tokens_used: int
+    cost_usd: float
 
 class ModelCommunicationError(Exception):
     pass
@@ -113,6 +132,8 @@ class ModelTester:
         self.model = ModelFactory.create_model(model_name)
         self.memory = GameChatMemory()
         self.config = ModelFactory.get_model_config(model_name)
+        self.total_tokens = 0
+        self.total_cost = 0.0
     
     def send_system_message(self, content: str):
         """Send initial system message with game rules."""
@@ -128,6 +149,9 @@ class ModelTester:
                 response = self.model.invoke(messages)
                 response_content = response.content
                 
+                # Track token usage and cost
+                self._update_usage_metrics(response)
+                
                 self.memory.add_ai_message(response_content)
                 return response_content
                 
@@ -138,8 +162,57 @@ class ModelTester:
                     raise ModelCommunicationError(error_msg)
                 time.sleep(2 ** attempt)  # Exponential backoff
     
+    def _update_usage_metrics(self, response):
+        """Update token usage and cost metrics from response."""
+        # Try to extract token usage from response metadata
+        if hasattr(response, 'response_metadata') and response.response_metadata:
+            metadata = response.response_metadata
+            
+            # For OpenAI models
+            if 'token_usage' in metadata:
+                tokens = metadata['token_usage'].get('total_tokens', 0)
+                self.total_tokens += tokens
+                self.total_cost += self._calculate_cost(tokens)
+            
+            # For Anthropic models
+            elif 'usage' in metadata:
+                input_tokens = metadata['usage'].get('input_tokens', 0)
+                output_tokens = metadata['usage'].get('output_tokens', 0)
+                total_tokens = input_tokens + output_tokens
+                self.total_tokens += total_tokens
+                self.total_cost += self._calculate_cost_anthropic(input_tokens, output_tokens)
+    
+    def _calculate_cost(self, tokens: int) -> float:
+        """Calculate cost for OpenAI models."""
+        # Approximate costs (per 1k tokens) - update as needed
+        cost_per_1k = {
+            'gpt-4': 0.03,
+            'gpt-4-turbo': 0.01,
+            'gpt-3.5-turbo': 0.002
+        }
+        
+        for model_key, cost in cost_per_1k.items():
+            if model_key in self.model_name.lower():
+                return (tokens / 1000) * cost
+        
+        # Default cost if model not found
+        return (tokens / 1000) * 0.01
+    
+    def _calculate_cost_anthropic(self, input_tokens: int, output_tokens: int) -> float:
+        """Calculate cost for Anthropic models."""
+        # Approximate costs (per 1k tokens) - update as needed
+        input_cost_per_1k = 0.003  # Claude-3 input cost
+        output_cost_per_1k = 0.015  # Claude-3 output cost
+        
+        return ((input_tokens / 1000) * input_cost_per_1k + 
+                (output_tokens / 1000) * output_cost_per_1k)
+    
     def get_conversation_history(self):
         return self.memory.get_conversation_log()
+    
+    def get_usage_metrics(self) -> Tuple[int, float]:
+        """Get total tokens used and cost."""
+        return self.total_tokens, self.total_cost
 
 def fetch_clues_from_website(url=None):
     """Fetch clues data from cluesbysam.com (or custom URL) and save to dated JSON file."""
@@ -218,11 +291,100 @@ def fetch_clues_from_website(url=None):
     
     return clues_data, filename
 
+def translate_hint_keywords(hint: str, cells: List[PuzzleCell]) -> str:
+    """Translate hint keywords to plain English."""
+    if not hint or hint == "NO HINT":
+        return hint
+
+    translated = hint
+
+    # #C:3 = "Column 2" (convert 1-based display, 0-based index becomes 1-based column)
+    def replace_column(match):
+        col_index = int(match.group(1))
+        return f"Column {col_index + 1}"
+    translated = re.sub(r'#C:(\d+)', replace_column, translated)
+
+    # #R:2 = "Row 1" (convert 1-based display, 0-based index becomes 1-based row)
+    def replace_row(match):
+        row_index = int(match.group(1))
+        return f"Row {row_index + 1}"
+    translated = re.sub(r'#R:(\d+)', replace_row, translated)
+
+    # #NAME:2 or #NAMES:2 = Name of person in flattened index 2
+    def replace_name(match):
+        index = int(match.group(1))
+        flat_cells = [cell for row in cells for cell in row]
+        if 0 <= index < len(flat_cells):
+            if 0 <= index < len(flat_cells):
+                return flat_cells[index].name.capitalize()
+        raise ValueError(f"Invalid index {index} used in hint keyword {match}")
+    translated = re.sub(r'#NAMES?:(\d+)', replace_name, translated)
+
+    # #PROF:<profession> or #PROFS:<profession> = <profession>
+    def replace_profession(match):
+        profession = match.group(1)
+        return profession
+    translated = re.sub(r'#PROFS?:(\w+)', replace_profession, translated)
+
+    # #BETWEEN:pair(4,16) = "between <Name4> and <Name16>"
+    def replace_between(match):
+        index1 = int(match.group(1))
+        index2 = int(match.group(2))
+
+        # Flatten the 2D grid to get people at indices
+        flat_cells = [cell for row in cells for cell in row] if isinstance(cells[0], list) else cells
+
+        name1 = flat_cells[index1].name if 0 <= index1 < len(flat_cells) else f"Person{index1}"
+        name2 = flat_cells[index2].name if 0 <= index2 < len(flat_cells) else f"Person{index2}"
+
+        return f"between {name1.capitalize()} and {name2.capitalize()}"
+    translated = re.sub(r'#BETWEEN:pair\((\d+),(\d+)\)', replace_between, translated)
+
+    return translated
+
+def validate_hint_keywords(hints: List[str]) -> None:
+    """Validate that all hint keywords are recognized. Exit if unknown keywords found."""
+    # Known keyword patterns
+    known_patterns = [
+        r'#C:\d+',           # Column references
+        r'#R:\d+',           # Row references
+        r'#NAMES?:\d+',      # Name references (singular and plural)
+        r'#PROFS?:\w+',      # Profession references (singular and plural)
+        r'#BETWEEN:pair\(\d+,\d+\)'  # Between references
+    ]
+
+    unknown_keywords = set()
+
+    for hint in hints:
+        if not hint or hint == "NO HINT":
+            continue
+
+        # Find all potential keywords (#WORD patterns)
+        keywords = re.findall(r'#[A-Z][A-Z0-9_]*(?::[^\s\]]+)?', hint)
+
+        for keyword in keywords:
+            # Check if this keyword matches any known pattern
+            is_known = False
+            for pattern in known_patterns:
+                if re.match(pattern, keyword):
+                    is_known = True
+                    break
+
+            if not is_known:
+                unknown_keywords.add(keyword)
+
+    if unknown_keywords:
+        print("ERROR: Unknown hint keywords found:")
+        for keyword in sorted(unknown_keywords):
+            print(f"  - {keyword}")
+        print("\nPlease add translations for these keywords before proceeding.")
+        exit(1)
+
 def replace_name_references(hint: str, cells: List[CellData]) -> str:
     def replace_match(match):
         index = int(match.group(1))
         return cells[index].name.capitalize()
-    
+
     return re.sub(r'#NAME:(\d+)', replace_match, hint)
 
 @click.command()
@@ -294,21 +456,88 @@ def fetch_and_cache_puzzle(puzzle_value):
     
     return clues_data, filename
 
-def serialize_puzzle_state(clues_data: List[dict], current_state: dict, method: SerializationMethod) -> str:
+def serialize_puzzle_state(clues_data: List[dict], current_state: List[List[PuzzleCell]], method: SerializationMethod) -> str:
     """Serialize puzzle state for model consumption."""
     if method == SerializationMethod.DEFAULT:
-        unsolved_count = sum(1 for person in clues_data if person['name'] not in current_state.get('solved', {}))
-        return f"PUZZLE STATE (STUB): {len(clues_data)} people, {unsolved_count} unsolved"
-    
-    raise ValueError(f"Unsupported serialization method: {method}")
+        # Count unsolved cells
+        unsolved_count = 0
+        solved_count = 0
+        
+        grid_str = "PUZZLE GRID (5 rows x 4 columns):\n"
+        solved_cells = []
 
-def initialize_puzzle_state(clues_data: List[dict]) -> dict:
-    """Initialize empty puzzle state."""
-    return {
-        "solved": {},  # name -> innocent/criminal
-        "grid": [[None for _ in range(4)] for _ in range(5)],  # 5x4 grid
-        "people": {person['name']: person for person in clues_data}
-    }
+        for row_idx, row in enumerate(current_state):
+            row_str = f"Row {row_idx + 1}: "
+            for col_idx, cell in enumerate(row):
+                if cell.status == Status.UNKNOWN:
+                    status_str = "?"
+                    unsolved_count += 1
+                elif cell.status == Status.CRIMINAL:
+                    status_str = "C"
+                    solved_count += 1
+                    solved_cells.append(cell)
+                else:  # INNOCENT
+                    status_str = "I"
+                    solved_count += 1
+                    solved_cells.append(cell)
+
+                row_str += f"[{cell.name.capitalize()}({cell.profession}):{status_str}] "
+            grid_str += row_str + "\n"
+
+        grid_str += f"\nSolved: {solved_count}/20, Remaining: {unsolved_count}"
+
+        # Add visible hints for solved cells
+        if solved_cells:
+            grid_str += "\n\nVISIBLE HINTS:"
+            for cell in solved_cells:
+                status_name = "CRIMINAL" if cell.status == Status.CRIMINAL else "INNOCENT"
+                translated_hint = translate_hint_keywords(cell.clue, current_state)
+                grid_str += f"\n- {cell.name} ({status_name}): {translated_hint}"
+        return grid_str
+
+
+def initialize_puzzle_state(clues_data: List[dict]) -> List[List[PuzzleCell]]:
+    """Initialize puzzle state as 2D list of PuzzleCell objects."""
+    # Validate hint keywords before creating puzzle state
+    hints = [person.get('hint', '') for person in clues_data]
+    validate_hint_keywords(hints)
+
+    # Create 5x4 grid
+    grid = []
+    ROWS = 5
+    COLS = 4
+
+    for row in range(ROWS):
+        grid_row = []
+        for col in range(COLS):
+            # Calculate index in flattened list (row-major order)
+            idx = row * COLS + col
+
+            if idx < len(clues_data):
+
+                person_data = clues_data[idx]
+                is_criminal = person_data['criminal']
+                if len(person_data['paths']) == 0:
+                    status = Status.CRIMINAL if is_criminal else Status.INNOCENT
+                else:
+                    status = Status.UNKNOWN
+                cell = PuzzleCell(
+                    name=person_data['name'],
+                    profession=person_data['profession'],
+                    gender=person_data['gender'],
+                    clue=person_data.get('hint', "NO HINT"),
+                    status=status,
+                    had_mistake=False,
+                    paths=person_data.get('paths', []),
+                    is_criminal=person_data.get('criminal', False)
+                )
+            else:
+                raise ValueError(f"Should not happen: index={idx}")
+
+            grid_row.append(cell)
+        grid.append(grid_row)
+
+    return grid
 
 def extract_move_from_response(response: str) -> str:
     """Extract move from model response."""
@@ -319,24 +548,98 @@ def extract_move_from_response(response: str) -> str:
     
     raise ValueError(f"Could not extract move from response: {response}")
 
-def validate_move(move: str, current_state: dict, clues_data: List[dict]) -> Tuple[bool, str]:
-    """Validate if a move is correct."""
-    # TODO: Implement actual validation logic
-    return True, "Move validation not implemented"
+def validate_move(move: str, current_state: List[List[PuzzleCell]], clues_data: List[dict]) -> Tuple[bool, str]:
+    """Validate if a move is logically deducible and correct."""
+    # Parse the move
+    parts = move.split(' is ')
+    if len(parts) != 2:
+        return False, "Invalid move format"
 
-def update_puzzle_state(current_state: dict, move: str) -> dict:
+    name, classification = parts
+    classification = classification.lower()
+
+    if classification not in ['innocent', 'criminal']:
+        return False, "Classification must be 'innocent' or 'criminal'"
+
+    # Find the target cell in the grid
+    target_cell = None
+    for row in current_state:
+        for cell in row:
+            if cell.name.lower() == name.lower():
+                target_cell = cell
+                break
+        if target_cell:
+            break
+
+    if not target_cell:
+        return False, f"Person '{name}' not found in puzzle"
+
+    if target_cell.status != Status.UNKNOWN:
+        return False, f"{name} is already classified"
+
+    # Check if the move is logically deducible based on paths
+    flat_cells = [cell for row in current_state for cell in row]
+
+    # Check if any path makes this move deducible
+    is_deducible = False
+    for path in target_cell.paths:
+        # A path makes the move deducible if all cells in the path are already identified
+        path_complete = True
+        for index in path:
+            if 0 <= index < len(flat_cells):
+                if flat_cells[index].status == Status.UNKNOWN:
+                    path_complete = False
+                    break
+            else:
+                path_complete = False
+                break
+
+        if path_complete:
+            is_deducible = True
+            break
+
+    # If not logically deducible, mark as mistake and reject
+    if not is_deducible:
+        target_cell.had_mistake = True
+        return False, f"Move cannot be logically deduced from the currently available information. You need to solve other people first to unlock the logical path for {name}."
+
+    # Move is deducible, now check if it's correct
+    expected_criminal = target_cell.is_criminal
+    move_says_criminal = (classification == 'criminal')
+
+    if move_says_criminal == expected_criminal:
+        return True, "Correct move!"
+    else:
+        target_cell.had_mistake = True
+        expected_status = "criminal" if expected_criminal else "innocent"
+        return False, f"Incorrect! {name} is actually {expected_status}, not {classification}."
+
+def update_puzzle_state(current_state: List[List[PuzzleCell]], move: str) -> List[List[PuzzleCell]]:
     """Update puzzle state after a correct move."""
-    # TODO: Implement state update logic
-    # Parse move and update current_state['solved']
     parts = move.split(' is ')
     if len(parts) == 2:
         name, classification = parts
-        current_state['solved'][name] = classification
+        classification = classification.lower()
+        
+        # Find and update the cell
+        for row in current_state:
+            for cell in row:
+                if cell.name.lower() == name.lower():
+                    if classification == 'criminal':
+                        cell.status = Status.CRIMINAL
+                    else:  # innocent
+                        cell.status = Status.INNOCENT
+                    break
+    
     return current_state
 
-def is_puzzle_complete(current_state: dict) -> bool:
+def is_puzzle_complete(current_state: List[List[PuzzleCell]]) -> bool:
     """Check if puzzle is completely solved."""
-    return len(current_state.get('solved', {})) == 20
+    for row in current_state:
+        for cell in row:
+            if cell.status == Status.UNKNOWN:
+                return False
+    return True
 
 def get_system_prompt() -> str:
     """Get initial system prompt with game rules."""
@@ -344,11 +647,23 @@ def get_system_prompt() -> str:
 You are playing a logic puzzle game called "Clues by Sam". Here are the rules:
 
 GAME RULES:
-- You have a 5x4 grid of people (20 total)
+- You have a grid of 20 people (5 rows of 4)
 - Each person is either innocent or criminal
-- Each person has a name, profession, and may have a clue
-- Your goal is to determine who is innocent and who is criminal
+- Each person has a name, profession, and maybe a clue (not all clues are helpful. Some are just banter). 
+- The clue is only visible once you have correctly marked the person as criminal or innocent.
+- Your goal is to determine who is innocent and who is criminal using only logic.
+- There is always a logical choice, even if you think there isn't.
 - You can only make one move at a time
+
+TERMINOLOGY:
+-  "Neighbors" always include diagonal neigbors. One person can have up to 8 neighbors.
+- In between (or sometimes just between) means the persons between the two, not including the two. 
+- Connected means a chain of orthogonal adjacency. For example "all criminals in row 1 are connected" means there are no innocents between any two criminals in that row.
+- To the left/right always means somewhere in the same row. Above/below always means somewhere in the same column. 
+- Directly to the left/right/above/below always means the neighbor to the left/right/above/below.
+- Common neighbors means those who are neighbors of both persons. It does not include the persons themselves. 
+- Share means "have in common". For example, "Share an odd number of innocent neighbors" means "have an odd number of common innocent neighbors".  
+- Edge means the 14 persons "surrounding" the board, including corners.
 
 RESPONSE FORMAT:
 Your response must contain exactly one move in this format:
@@ -370,8 +685,6 @@ def get_state_prompt_template() -> str:
     return """
 CURRENT PUZZLE STATE:
 {serialized_state}
-
-REMAINING UNSOLVED: {unsolved_count} people
 
 What is your next move?
 """
@@ -424,7 +737,9 @@ def save_test_results(test_result: TestResult) -> str:
         "duration_seconds": test_result.duration_seconds,
         "completed": test_result.completed,
         "total_moves": test_result.total_moves,
-        "max_moves_reached": test_result.max_moves_reached
+        "max_moves_reached": test_result.max_moves_reached,
+        "tokens_used": test_result.tokens_used,
+        "cost_usd": test_result.cost_usd
     }
     metadata_path = os.path.join(results_dir, "metadata.json")
     with open(metadata_path, 'w') as f:
@@ -445,6 +760,8 @@ def print_test_evaluation(test_result: TestResult, results_path: str):
     print(f"Completed: {'✓' if test_result.completed else '✗'}")
     print(f"Total Moves: {test_result.total_moves}")
     print(f"Duration: {test_result.duration_seconds:.2f} seconds")
+    print(f"Tokens Used: {test_result.tokens_used:,}")
+    print(f"Cost: ${test_result.cost_usd:.4f}")
     print(f"Results saved to: {results_path}")
     
     if test_result.max_moves_reached:
@@ -460,7 +777,7 @@ def run_model_test(
     
     start_time = time.time()
     moves = []
-    current_state = initialize_puzzle_state(clues_data)
+    current_state: List[List[PuzzleCell]] = initialize_puzzle_state(clues_data)
     max_moves = 100
     
     # Initialize model tester
@@ -520,6 +837,7 @@ def run_model_test(
     duration = time.time() - start_time
     completed = is_puzzle_complete(current_state)
     max_moves_reached = move_count >= max_moves
+    tokens_used, cost_usd = model_tester.get_usage_metrics()
     
     return TestResult(
         puzzle_data=clues_data,
@@ -531,52 +849,69 @@ def run_model_test(
         moves=moves,
         completed=completed,
         total_moves=move_count,
-        max_moves_reached=max_moves_reached
+        max_moves_reached=max_moves_reached,
+        tokens_used=tokens_used,
+        cost_usd=cost_usd
     )
 
 @click.command()
-@click.option('--model', required=True, type=str, help='Name of the model to test')
+@click.option('--model', type=str, help='Name of the model to test')
 @click.option('--puzzle', type=str, help='Puzzle to test on (YYYYMMDD date or URL, defaults to today)')
-@click.option('--serialization', 
-              type=click.Choice([e.value for e in SerializationMethod]), 
+@click.option('--serialization',
+              type=click.Choice([e.value for e in SerializationMethod]),
               default=SerializationMethod.DEFAULT.value,
               help='Puzzle serialization method')
-def test(model, puzzle, serialization):
+@click.option('--preview', is_flag=True, help='Show only the initial puzzle state without running model test')
+def test(model, puzzle, serialization, preview):
     """Test a model on a specific puzzle."""
+    # Validate required parameters
+    if not preview and not model:
+        click.echo("Error: --model is required unless using --preview", err=True)
+        return
+
     validated_puzzle = validate_puzzle(puzzle)
-    
+
     # Step 1: Fetch and/or load puzzle
     print(f"Loading puzzle: {validated_puzzle}")
-    
+
     # Try to load from cache first
     clues_data, cache_filename = load_puzzle_from_cache(validated_puzzle)
-    
+
     if clues_data:
         print(f"Loaded puzzle from cache: {cache_filename}")
     else:
         print(f"Puzzle not cached, fetching...")
         clues_data, cache_filename = fetch_and_cache_puzzle(validated_puzzle)
         print(f"Fetched and cached puzzle: {cache_filename}")
-    
+
     print(f"Puzzle contains {len(clues_data)} clues")
-    
-    # Validate model
+
+    # Preview mode: just show initial state and exit
+    if preview:
+        print(f"\n=== PUZZLE PREVIEW ===")
+        serialization_method = SerializationMethod(serialization)
+        current_state = initialize_puzzle_state(clues_data)
+        initial_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
+        print(initial_state)
+        return
+
+    # Validate model for testing
     try:
         ModelFactory.create_model(model)
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         return
-    
+
     # Step 2: Run the test
     try:
         print(f"\nStarting test with model: {model}")
         serialization_method = SerializationMethod(serialization)
         test_result = run_model_test(model, clues_data, validated_puzzle, serialization_method)
-        
+
         # Step 3: Save and print results
         results_path = save_test_results(test_result)
         print_test_evaluation(test_result, results_path)
-        
+
     except Exception as e:
         click.echo(f"Test failed: {e}", err=True)
         raise
