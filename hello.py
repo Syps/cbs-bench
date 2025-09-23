@@ -23,6 +23,10 @@ from z3 import *
 from collections import defaultdict
 from pydantic import BaseModel
 
+ROWS = 5
+COLS = 4
+
+
 class CellData(BaseModel):
     name: str
     profession: str
@@ -77,7 +81,9 @@ class ModelFactory:
     @staticmethod
     def create_model(model_name: str):
         """Create appropriate LangChain model based on model name."""
-        if model_name.startswith('gpt'):
+        if model_name == 'human':
+            return None  # Human mode doesn't need a model
+        elif model_name.startswith('gpt'):
             return ChatOpenAI(model_name=model_name, temperature=0)
         elif model_name.startswith('claude'):
             return ChatAnthropic(model_name=model_name, temperature=0)
@@ -134,27 +140,73 @@ class ModelTester:
         self.config = ModelFactory.get_model_config(model_name)
         self.total_tokens = 0
         self.total_cost = 0.0
-    
+        self.is_human = (model_name == 'human')
+
     def send_system_message(self, content: str):
         """Send initial system message with game rules."""
-        self.memory.add_system_message(content)
-    
+        if self.is_human:
+            print("\n" + "="*50)
+            print("GAME RULES:")
+            print("="*50)
+            print(content)
+            print("="*50)
+        else:
+            self.memory.add_system_message(content)
+
     def send_message_and_get_response(self, content: str, max_retries: int = 3) -> str:
         """Send message with full context and get model response."""
+        if self.is_human:
+            return self._get_human_response(content)
+        else:
+            return self._get_ai_response(content, max_retries)
+
+    def _get_human_response(self, content: str) -> str:
+        """Get response from human player."""
+        print("\n" + "-"*50)
+        print("CURRENT GAME STATE:")
+        print("-"*50)
+        print(content)
+        print("-"*50)
+
+        while True:
+            try:
+                response = input("\nEnter your move (format: 'MOVE: [name] is [innocent|criminal]') or 'quit' to exit: ").strip()
+
+                if response.lower() == 'quit':
+                    raise KeyboardInterrupt("Game quit by user")
+
+                # Validate basic format
+                if response.upper().startswith('MOVE:'):
+                    # Log the human interaction
+                    self.memory.add_user_message(content)
+                    self.memory.add_ai_message(response)
+                    return response
+                else:
+                    print("Invalid format. Please use: MOVE: [name] is [innocent|criminal]")
+
+            except KeyboardInterrupt:
+                print("\nGame interrupted by user.")
+                raise
+            except EOFError:
+                print("\nInput stream ended.")
+                raise KeyboardInterrupt("Input stream ended")
+
+    def _get_ai_response(self, content: str, max_retries: int = 3) -> str:
+        """Get response from AI model."""
         self.memory.add_user_message(content)
-        
+
         for attempt in range(max_retries):
             try:
                 messages = self.memory.get_messages()
                 response = self.model.invoke(messages)
                 response_content = response.content
-                
+
                 # Track token usage and cost
                 self._update_usage_metrics(response)
-                
+
                 self.memory.add_ai_message(response_content)
                 return response_content
-                
+
             except Exception as e:
                 if attempt == max_retries - 1:
                     error_msg = f"Model communication failed after {max_retries} attempts: {e}"
@@ -291,56 +343,153 @@ def fetch_clues_from_website(url=None):
     
     return clues_data, filename
 
-def translate_hint_keywords(hint: str, cells: List[PuzzleCell]) -> str:
-    """Translate hint keywords to plain English."""
+def translate_hint_keywords(name: str, hint: str, cells: List[PuzzleCell]) -> str:
+    """Translate hint keywords to plain English following JS parsing rules."""
     if not hint or hint == "NO HINT":
         return hint
 
-    translated = hint
+    s = hint
+    flat_cells = [cell for row in cells for cell in row]
 
-    # #C:3 = "Column 2" (convert 1-based display, 0-based index becomes 1-based column)
+    # Find current cell index (equivalent to 'a' in JS)
+    current_cell_index = None
+    for i, cell in enumerate(flat_cells):
+        if cell.name == name:
+            current_cell_index = i
+            break
+
+    # Column names (Kd array equivalent)
+    column_names = ["A", "B", "C", "D"]
+
+    # 1. Replace #C:([0-9]) with column names
     def replace_column(match):
-        col_index = int(match.group(1))
-        return f"Column {col_index + 1}"
-    translated = re.sub(r'#C:(\d+)', replace_column, translated)
+        col_num = int(match.group(1))
+        return column_names[col_num - 1] if 1 <= col_num <= len(column_names) else match.group(0)
+    s = re.sub(r'#C:([0-9])', replace_column, s)
 
-    # #R:2 = "Row 1" (convert 1-based display, 0-based index becomes 1-based row)
-    def replace_row(match):
-        row_index = int(match.group(1))
-        return f"Row {row_index + 1}"
-    translated = re.sub(r'#R:(\d+)', replace_row, translated)
-
-    # #NAME:2 or #NAMES:2 = Name of person in flattened index 2
-    def replace_name(match):
+    # 2. Replace #NAMES:([0-9]+) with possessive forms
+    def replace_names_possessive(match):
         index = int(match.group(1))
-        flat_cells = [cell for row in cells for cell in row]
-        if 0 <= index < len(flat_cells):
-            if 0 <= index < len(flat_cells):
-                return flat_cells[index].name.capitalize()
-        raise ValueError(f"Invalid index {index} used in hint keyword {match}")
-    translated = re.sub(r'#NAMES?:(\d+)', replace_name, translated)
+        if index >= len(flat_cells):
+            return match.group(0)
+        cell_name = flat_cells[index].name
+        if current_cell_index == index:
+            return "my"
+        return f"#NAME:{index}'s" if not cell_name.endswith('s') else f"#NAME:{index}'"
+    s = re.sub(r'#NAMES:([0-9]+)', replace_names_possessive, s)
 
-    # #PROF:<profession> or #PROFS:<profession> = <profession>
-    def replace_profession(match):
-        profession = match.group(1)
-        return profession
-    translated = re.sub(r'#PROFS?:(\w+)', replace_profession, translated)
+    # 3. Replace "#NAME:([0-9]+) and #NAME:([0-9]+)" patterns
+    def replace_name_and_name(match):
+        index1, index2 = int(match.group(1)), int(match.group(2))
+        if current_cell_index == index1:
+            return f"#NAME:{index2} and I"
+        elif current_cell_index == index2:
+            return f"#NAME:{index1} and I"
+        return match.group(0)
+    s = re.sub(r'#NAME:([0-9]+) and #NAME:([0-9]+)', replace_name_and_name, s)
 
-    # #BETWEEN:pair(4,16) = "between <Name4> and <Name16>"
+    # 4. Replace "^#NAME:([0-9]+) (is|has)" at start of string
+    def replace_name_is_has(match):
+        index = int(match.group(1))
+        verb = match.group(2)
+        if current_cell_index == index:
+            if verb == "is":
+                return "I am"
+            elif verb == "has":
+                return "I have"
+            else:
+                return f"I {verb}"
+        return f"#NAME:{index} {verb}"
+    s = re.sub(r'^#NAME:([0-9]+) (is|has)', replace_name_is_has, s)
+
+    # 5. Replace #BETWEEN:pair\(([0-9]+),([0-9]+)\) with complex logic
     def replace_between(match):
-        index1 = int(match.group(1))
-        index2 = int(match.group(2))
+        is_prefix = match.group(1) or ""  # Captures "is " prefix if present
+        index1, index2 = int(match.group(2)), int(match.group(3))
 
-        # Flatten the 2D grid to get people at indices
-        flat_cells = [cell for row in cells for cell in row] if isinstance(cells[0], list) else cells
+        # Ensure B <= Z (smaller index first)
+        B = min(index1, index2)
+        Z = max(index1, index2)
 
-        name1 = flat_cells[index1].name if 0 <= index1 < len(flat_cells) else f"Person{index1}"
-        name2 = flat_cells[index2].name if 0 <= index2 < len(flat_cells) else f"Person{index2}"
+        # Calculate positions
+        K = B % COLS  # B column
+        F = B // COLS  # B row
+        ae = Z % COLS  # Z column
+        P = Z // COLS  # Z row
 
-        return f"between {name1.capitalize()} and {name2.capitalize()}"
-    translated = re.sub(r'#BETWEEN:pair\((\d+),(\d+)\)', replace_between, translated)
+        de = (F == P)  # same row
+        ve = B - (1 if de else COLS)  # previous cell
+        k = Z + (1 if de else COLS)   # next cell
 
-    return translated
+        if de:  # same row
+            if K == 0 and ae == COLS - 1:
+                return f"{is_prefix}in row {F + 1}"
+            if K == 0:
+                ref_name = "me" if current_cell_index == k else f"#NAME:{k}"
+                return f"{'is ' if is_prefix else ''}to the left of {ref_name}"
+            if ae == COLS - 1:
+                ref_name = "me" if current_cell_index == ve else f"#NAME:{ve}"
+                return f"{'is ' if is_prefix else ''}to the right of {ref_name}"
+        else:  # same column
+            if F == 0 and P == ROWS - 1:
+                return f"{is_prefix}in column {column_names[K]}"
+            if F == 0:
+                ref_name = "me" if current_cell_index == k else f"#NAME:{k}"
+                return f"{'is ' if is_prefix else ''}above {ref_name}"
+            if P == ROWS - 1:
+                ref_name = "me" if current_cell_index == ve else f"#NAME:{ve}"
+                return f"{'is ' if is_prefix else ''}below {ref_name}"
+
+        # General case
+        if current_cell_index == ve:
+            return f"{'is ' if is_prefix else ''}in between #NAME:{k} and me"
+        elif current_cell_index == k:
+            return f"{'is ' if is_prefix else ''}in between #NAME:{ve} and me"
+        else:
+            return f"{'is ' if is_prefix else ''}in between #NAME:{ve} and #NAME:{k}"
+
+    s = re.sub(r'(is )?#BETWEEN:pair\(([0-9]+),([0-9]+)\)', replace_between, s)
+
+    # 6. Replace #PROF(S?):([a-z]+)
+    def replace_profession(match):
+        plural = match.group(1) or ""  # 'S' if plural
+        profession = match.group(2)
+        return f"{profession}{'s' if plural else ''}"
+    s = re.sub(r'#PROF(S?):([a-z]+)', replace_profession, s)
+
+    # 7. Replace various #NAME:([0-9]+) patterns
+    # First handle "neighboring #NAME:([0-9]+)"
+    def replace_neighboring_name(match):
+        index = int(match.group(1))
+        return "neighboring me" if current_cell_index == index else match.group(0)
+    s = re.sub(r'neighboring #NAME:([0-9]+)', replace_neighboring_name, s)
+
+    # Then handle "^#NAME:([0-9]+)" at start of string
+    def replace_name_start(match):
+        index = int(match.group(1))
+        return "I" if current_cell_index == index else match.group(0)
+    s = re.sub(r'^#NAME:([0-9]+)', replace_name_start, s)
+
+    # Then handle all other "#NAME:([0-9]+)" -> "me" if current cell
+    def replace_name_me(match):
+        index = int(match.group(1))
+        return "me" if current_cell_index == index else match.group(0)
+    s = re.sub(r'#NAME:([0-9]+)', replace_name_me, s)
+
+    # Finally replace remaining "#NAME:([0-9]+)" with actual names
+    def replace_name_final(match):
+        index = int(match.group(1))
+        if index >= len(flat_cells):
+            return match.group(0)
+        cell_name = flat_cells[index].name
+        return cell_name.capitalize()
+    s = re.sub(r'#NAME:([0-9]+)', replace_name_final, s)
+
+    # 8. Final cleanup
+    s = s.replace(" exactly 0 ", " no ")
+    s = s[0].upper() + s[1:] if len(s) > 0 else s
+
+    return s
 
 def validate_hint_keywords(hints: List[str]) -> None:
     """Validate that all hint keywords are recognized. Exit if unknown keywords found."""
@@ -491,7 +640,7 @@ def serialize_puzzle_state(clues_data: List[dict], current_state: List[List[Puzz
             grid_str += "\n\nVISIBLE HINTS:"
             for cell in solved_cells:
                 status_name = "CRIMINAL" if cell.status == Status.CRIMINAL else "INNOCENT"
-                translated_hint = translate_hint_keywords(cell.clue, current_state)
+                translated_hint = translate_hint_keywords(cell.name, cell.clue, current_state)
                 grid_str += f"\n- {cell.name} ({status_name}): {translated_hint}"
         return grid_str
 
@@ -504,8 +653,6 @@ def initialize_puzzle_state(clues_data: List[dict]) -> List[List[PuzzleCell]]:
 
     # Create 5x4 grid
     grid = []
-    ROWS = 5
-    COLS = 4
 
     for row in range(ROWS):
         grid_row = []
@@ -818,11 +965,16 @@ def run_model_test(
                     model_tester.send_message_and_get_response("Congratulations! You've solved the puzzle!")
                     break
             else:
-                feedback_message = f"Incorrect move. {feedback} Please try again."
+                # Include current puzzle state after error message
+                current_puzzle_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
+                feedback_message = f"Incorrect move. {feedback} Please try again.\n\nCurrent puzzle state:\n{current_puzzle_state}"
                 model_tester.send_message_and_get_response(feedback_message)
             
             move_count += 1
             
+        except KeyboardInterrupt:
+            print(f"\nGame interrupted by user after {move_count} moves.")
+            break
         except (ModelCommunicationError, ValueError, GameStateError) as e:
             moves.append({
                 "move_number": move_count + 1,
@@ -898,6 +1050,9 @@ def test(model, puzzle, serialization, preview):
     # Validate model for testing
     try:
         ModelFactory.create_model(model)
+        if model == 'human':
+            print(f"\n🎮 Starting human gameplay mode for puzzle: {validated_puzzle}")
+            print("You can type 'quit' at any time to exit the game.")
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         return
