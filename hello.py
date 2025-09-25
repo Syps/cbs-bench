@@ -193,6 +193,13 @@ class ModelTester:
 
     def _get_ai_response(self, content: str, max_retries: int = 3) -> str:
         """Get response from AI model."""
+        # Print user message to stdout
+        print("\n" + "="*80)
+        print("📤 USER MESSAGE:")
+        print("="*80)
+        print(content)
+        print("="*80)
+
         self.memory.add_user_message(content)
 
         for attempt in range(max_retries):
@@ -200,6 +207,12 @@ class ModelTester:
                 messages = self.memory.get_messages()
                 response = self.model.invoke(messages)
                 response_content = response.content
+
+                # Print AI response to stdout
+                print(f"\n🤖 {self.model_name.upper()} RESPONSE:")
+                print("-"*80)
+                print(response_content)
+                print("-"*80)
 
                 # Track token usage and cost
                 self._update_usage_metrics(response)
@@ -222,9 +235,12 @@ class ModelTester:
             
             # For OpenAI models
             if 'token_usage' in metadata:
-                tokens = metadata['token_usage'].get('total_tokens', 0)
-                self.total_tokens += tokens
-                self.total_cost += self._calculate_cost(tokens)
+                usage = metadata['token_usage']
+                input_tokens = usage.get('prompt_tokens', 0)
+                output_tokens = usage.get('completion_tokens', 0)
+                total_tokens = usage.get('total_tokens', input_tokens + output_tokens)
+                self.total_tokens += total_tokens
+                self.total_cost += self._calculate_cost_openai(input_tokens, output_tokens)
             
             # For Anthropic models
             elif 'usage' in metadata:
@@ -234,21 +250,35 @@ class ModelTester:
                 self.total_tokens += total_tokens
                 self.total_cost += self._calculate_cost_anthropic(input_tokens, output_tokens)
     
-    def _calculate_cost(self, tokens: int) -> float:
-        """Calculate cost for OpenAI models."""
-        # Approximate costs (per 1k tokens) - update as needed
-        cost_per_1k = {
-            'gpt-4': 0.03,
-            'gpt-4-turbo': 0.01,
-            'gpt-3.5-turbo': 0.002
+    def _calculate_cost_openai(self, input_tokens: int, output_tokens: int) -> float:
+        """Calculate cost for OpenAI models based on input/output tokens."""
+        # Pricing per 1M tokens (as of latest update)
+        model_pricing = {
+            'gpt-5': {
+                'input': 1.250,  # $1.250 / 1M tokens
+                'output': 10.000  # $10.000 / 1M tokens
+            },
+            'gpt-5-mini': {
+                'input': 0.250,  # $0.250 / 1M tokens
+                'output': 2.000   # $2.000 / 1M tokens
+            },
+            'gpt-5-nano': {
+                'input': 0.050,  # $0.050 / 1M tokens
+                'output': 0.400   # $0.400 / 1M tokens
+            }
         }
-        
-        for model_key, cost in cost_per_1k.items():
+
+        # Find matching model
+        for model_key, pricing in model_pricing.items():
             if model_key in self.model_name.lower():
-                return (tokens / 1000) * cost
-        
-        # Default cost if model not found
-        return (tokens / 1000) * 0.01
+                input_cost = (input_tokens / 1000000) * pricing['input']
+                output_cost = (output_tokens / 1000000) * pricing['output']
+                return input_cost + output_cost
+
+        # Default cost if model not found (using gpt-5-mini rates as fallback)
+        input_cost = (input_tokens / 1000000) * 0.250
+        output_cost = (output_tokens / 1000000) * 2.000
+        return input_cost + output_cost
     
     def _calculate_cost_anthropic(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate cost for Anthropic models."""
@@ -303,7 +333,7 @@ def fetch_clues_from_website(url=None):
     # Look for array of objects with criminal, profession, name, gender fields
     # Pattern matches: =[{criminal:!0,profession:"...",name:"...",gender:"...",...},...],nextVar=
     # Stop at ] followed by comma and next variable assignment
-    pattern = r'=(\[\{.*?criminal:.*?profession:.*?name:.*?gender:.*?\}.*?]),\w+='
+    pattern = r'=(\[\{.*?criminal:.*?profession:.*?name:.*?gender:.*?\}]),'
     
     match = re.search(pattern, js_content, re.DOTALL)
     
@@ -317,6 +347,9 @@ def fetch_clues_from_website(url=None):
     # Replace single quotes with double quotes, handle JS boolean values
     # json_text = clues_text.replace("'", '"').replace('True', 'true').replace('False', 'false')
     json_text = clues_text.replace('!0', 'true').replace('!1', 'false')
+    with open('json_text.txt', 'w') as f:
+        f.write(json_text)
+    # import sys;sys.exit(0)
     
     clues_data = json5.loads(json_text)
     
@@ -935,23 +968,40 @@ def run_model_test(
     model_tester.send_system_message(system_prompt)
     
     # Main game loop
-    move_count = 0
-    
-    while move_count < max_moves:
+    move_count = 1
+    feedback_message = None
+    while move_count < max_moves + 1:
+        #TODO: we are prompting model twice, reduce it to once
+
         try:
+            print(f"\n{'='*80}")
+            print(f"🎯 MOVE {move_count} (Model: {model_name})")
+            print(f"{'='*80}")
+
             # Serialize current puzzle state
-            state_message = serialize_puzzle_state(clues_data, current_state, serialization_method)
-            
+
+            if feedback_message is not None:
+                state_message = feedback_message
+            else:
+                state_message = serialize_puzzle_state(clues_data, current_state, serialization_method)
+
             # Send state to model and get response
             model_response = model_tester.send_message_and_get_response(state_message)
             
             # Extract and validate move
             move = extract_move_from_response(model_response)
             is_correct, feedback = validate_move(move, current_state, clues_data)
+
+            # Print move result to stdout
+            status_emoji = "✅" if is_correct else "❌"
+            # print(f"\n{status_emoji} MOVE RESULT:")
+            # print(f"Move: {move}")
+            # print(f"Feedback: {feedback}")
+            # print("="*80)
             
             # Record move
             moves.append({
-                "move_number": move_count + 1,
+                "move_number": move_count,
                 "move": move,
                 "correct": is_correct,
                 "feedback": feedback,
@@ -960,16 +1010,19 @@ def run_model_test(
             
             if is_correct:
                 current_state = update_puzzle_state(current_state, move)
-                
+
+                # Send confirmation message with updated puzzle state
+                updated_puzzle_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
+                feedback_message = f"Correct ✅\n\nUpdated puzzle state:\n{updated_puzzle_state}"
+
                 if is_puzzle_complete(current_state):
-                    model_tester.send_message_and_get_response("Congratulations! You've solved the puzzle!")
+                    model_tester.send_message_and_get_response("Correct ✅\n\nCongratulations! You've solved the puzzle!")
                     break
             else:
                 # Include current puzzle state after error message
                 current_puzzle_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
                 feedback_message = f"Incorrect move. {feedback} Please try again.\n\nCurrent puzzle state:\n{current_puzzle_state}"
-                model_tester.send_message_and_get_response(feedback_message)
-            
+
             move_count += 1
             
         except KeyboardInterrupt:
@@ -977,7 +1030,7 @@ def run_model_test(
             break
         except (ModelCommunicationError, ValueError, GameStateError) as e:
             moves.append({
-                "move_number": move_count + 1,
+                "move_number": move_count,
                 "move": "ERROR",
                 "correct": False,
                 "feedback": str(e),
@@ -988,7 +1041,7 @@ def run_model_test(
     # Calculate results
     duration = time.time() - start_time
     completed = is_puzzle_complete(current_state)
-    max_moves_reached = move_count >= max_moves
+    max_moves_reached = move_count >= max_moves + 1
     tokens_used, cost_usd = model_tester.get_usage_metrics()
     
     return TestResult(
@@ -1305,10 +1358,123 @@ def find_determined_variables(grid: Grid):
 def cli():
     pass
 
+@click.command()
+@click.argument('test_id', type=str)
+def replay(test_id):
+    """Replay a recorded game session from .test_results/{test_id}."""
+    import time
+
+    test_dir = os.path.join('.test_results', test_id)
+
+    if not os.path.exists(test_dir):
+        click.echo(f"Error: Test result directory '{test_dir}' not found", err=True)
+        return
+
+    # Load the recorded data
+    try:
+        with open(os.path.join(test_dir, 'metadata.json'), 'r') as f:
+            metadata = json.load(f)
+
+        with open(os.path.join(test_dir, 'moves.json'), 'r') as f:
+            moves = json.load(f)
+
+        with open(os.path.join(test_dir, 'conversation.json'), 'r') as f:
+            conversation = json.load(f)
+
+        with open(os.path.join(test_dir, 'puzzle.json'), 'r') as f:
+            puzzle_data = json.load(f)
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: Missing file in test directory: {e}", err=True)
+        return
+    except json.JSONDecodeError as e:
+        click.echo(f"Error: Invalid JSON in test files: {e}", err=True)
+        return
+
+    # Print header
+    print("=" * 80)
+    print(f"🔄 REPLAYING GAME SESSION: {test_id}")
+    print("=" * 80)
+    print(f"Model: {metadata['model_name']}")
+    print(f"Puzzle: {metadata['puzzle_identifier']}")
+    print(f"Date: {metadata['test_date']}")
+    print(f"Duration: {metadata['duration_seconds']:.1f} seconds")
+    print(f"Completed: {'✅' if metadata['completed'] else '❌'}")
+    print(f"Total Moves: {metadata['total_moves']}")
+    if 'tokens_used' in metadata:
+        print(f"Tokens Used: {metadata['tokens_used']:,}")
+    if 'cost_usd' in metadata:
+        print(f"Cost: ${metadata['cost_usd']:.4f}")
+    print("=" * 80)
+
+    # Group conversation by move cycles
+    move_index = 0
+    conversation_index = 0
+
+    while conversation_index < len(conversation):
+        msg = conversation[conversation_index]
+
+        if msg['role'] == 'system':
+            print(f"\n🤖 SYSTEM MESSAGE:")
+            print("-" * 40)
+            print(msg['content'])
+            print("-" * 40)
+            conversation_index += 1
+
+        elif msg['role'] == 'user':
+            # This should be a puzzle state
+            print(f"\n📋 PUZZLE STATE (Move {move_index + 1}):")
+            print("-" * 40)
+            print(msg['content'])
+            print("-" * 40)
+            conversation_index += 1
+
+            # Look for the corresponding assistant response
+            if conversation_index < len(conversation) and conversation[conversation_index]['role'] == 'assistant':
+                assistant_msg = conversation[conversation_index]
+                print(f"\n🤔 MODEL RESPONSE:")
+                print("-" * 40)
+                print(assistant_msg['content'])
+                print("-" * 40)
+                conversation_index += 1
+
+                # Show the corresponding move data if available
+                if move_index < len(moves):
+                    move_data = moves[move_index]
+                    status_emoji = "✅" if move_data['correct'] else "❌"
+                    print(f"\n{status_emoji} MOVE RESULT:")
+                    print(f"Move: {move_data['move']}")
+                    print(f"Correct: {move_data['correct']}")
+                    print(f"Feedback: {move_data['feedback']}")
+                    print(f"Timestamp: {move_data['timestamp']}")
+                    move_index += 1
+
+            # Add a pause for readability
+            print("\n" + "=" * 80)
+            time.sleep(0.5)  # Brief pause between moves
+        else:
+            conversation_index += 1
+
+    # Show final summary
+    print(f"\n🏁 GAME SUMMARY:")
+    print("-" * 40)
+    correct_moves = sum(1 for move in moves if move['correct'])
+    print(f"Total Moves: {len(moves)}")
+    print(f"Correct Moves: {correct_moves}")
+    print(f"Accuracy: {correct_moves/len(moves)*100:.1f}%" if moves else "N/A")
+    print(f"Game Completed: {'Yes ✅' if metadata['completed'] else 'No ❌'}")
+
+    if not metadata['completed']:
+        if metadata.get('max_moves_reached', False):
+            print("⚠️  Game ended due to max moves limit")
+        else:
+            print("⚠️  Game ended early (likely due to error or interruption)")
+
 cli.add_command(main)
 cli.add_command(ingest)
 cli.add_command(fetch)
 cli.add_command(test)
+cli.add_command(replay)
 
 if __name__ == "__main__":
     cli()
