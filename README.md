@@ -6,6 +6,12 @@ A benchmarking tool for evaluating large language models on logic puzzles using 
 
 Test frontier LLMs on their ability to solve deductive reasoning puzzles. The tool fetches daily logic puzzles from cluesbysam.com and evaluates how well different models can work through the logical constraints to identify criminals and innocents in a 5x4 grid of characters.
 
+## TODO
+- [ ] Single command to test multiple/all models
+- [ ] Command to generate performance comparison for a given puzzle (using cache)
+  -  [ ] Show emoji version of performance
+- [ ] Scoring algo
+
 ## How It Works
 
 Each puzzle presents a 5x4 grid (20 people) where each person is either innocent or criminal. Players receive:
@@ -17,7 +23,7 @@ The goal is to use pure deductive reasoning to identify everyone correctly.
 
 ## Key Features
 
-- **Multi-Model Support**: Test OpenAI GPT, Anthropic Claude, and Google Gemini models
+- **Multi-Model Support**: Test OpenAI GPT, Anthropic Claude, Google Gemini, DeepSeek, and xAI Grok models
 - **Automatic Puzzle Fetching**: Downloads and caches daily puzzles from cluesbysam.com
 - **Human Mode**: Play puzzles yourself to understand the challenge
 - **Comprehensive Logging**: Records conversations, moves, timing, and token usage
@@ -81,6 +87,8 @@ logic-solver replay 20241015-claude-sonnet-4-20250514
 - **OpenAI**: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`
 - **Anthropic**: `claude-sonnet-4-20250514`, `claude-sonnet-4-5-20250929`
 - **Google**: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
+- **DeepSeek**: `deepseek-chat`, `deepseek-reasoner`
+- **xAI**: `grok-4`
 - **Human**: `human` (for manual gameplay)
 
 ## Game Rules
