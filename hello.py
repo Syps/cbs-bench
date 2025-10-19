@@ -5,9 +5,8 @@ import json
 import re
 import requests
 import hashlib
-import sys
 import time
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -19,6 +18,7 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_deepseek import ChatDeepSeek
+from langchain_xai import ChatXAI
 from langchain.memory import ChatMessageHistory
 
 from z3 import *
@@ -40,6 +40,7 @@ AVAILABLE_MODELS = [
     "gemini-2.5-flash-lite",
     "deepseek-chat",
     "deepseek-reasoner",
+    "grok-4"
 ]
 
 class CellData(BaseModel):
@@ -106,6 +107,8 @@ class ModelFactory:
             return ChatGoogleGenerativeAI(model=model_name, temperature=0)
         elif model_name.startswith("deepseek"):
             return ChatDeepSeek(model=model_name, temperature=0)
+        elif model_name.startswith("grok"):
+            return ChatXAI(model=model_name, temperature=0)
         else:
             raise ValueError(f"Unsupported model: {model_name}")
 
