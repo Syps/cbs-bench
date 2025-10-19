@@ -1,10 +1,10 @@
-# Logic Solver
+# CBS Benchmark
 
 A benchmarking tool for evaluating large language models on logic puzzles using the game ["Clues by Sam"](https://cluesbysam.com).
 
 ## Overview
 
-Logic Solver tests frontier LLMs on their ability to solve deductive reasoning puzzles. The tool fetches daily logic puzzles from cluesbysam.com and evaluates how well different models can work through the logical constraints to identify criminals and innocents in a 5x4 grid of characters.
+Test frontier LLMs on their ability to solve deductive reasoning puzzles. The tool fetches daily logic puzzles from cluesbysam.com and evaluates how well different models can work through the logical constraints to identify criminals and innocents in a 5x4 grid of characters.
 
 ## How It Works
 
@@ -86,7 +86,7 @@ logic-solver replay 20241015-claude-sonnet-4-20250514
 ## Game Rules
 
 ### Grid Layout
-- 5 rows × 4 columns = 20 people
+- 5 rows ï¿½ 4 columns = 20 people
 - Each person has a name, profession, and gender
 - Each person is either innocent or criminal
 
@@ -123,10 +123,10 @@ Puzzle contains 20 clues
 Starting test with model: claude-sonnet-4-20250514
 
 ===============================================================================
-<¯ MOVE 1 (Model: claude-sonnet-4-20250514)
+<ï¿½ MOVE 1 (Model: claude-sonnet-4-20250514)
 ===============================================================================
 
-=ä USER MESSAGE:
+=ï¿½ USER MESSAGE:
 ===============================================================================
 PUZZLE GRID (5 rows x 4 columns):
 Row 1: [Amy(sleuth):?] [Bobby(builder):?] [Daniel(singer):?] [Evie(sleuth):?]
