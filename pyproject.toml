@@ -17,6 +17,7 @@ dependencies = [
     "langchain-community>=0.1.0",
     "tiktoken>=0.11.0",
     "langchain-google-genai>=2.1.12",
+    "langchain-deepseek>=0.1.4",
 ]
 
 [project.scripts]

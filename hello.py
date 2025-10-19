@@ -18,6 +18,7 @@ from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_deepseek import ChatDeepSeek
 from langchain.memory import ChatMessageHistory
 
 from z3 import *
@@ -36,7 +37,9 @@ AVAILABLE_MODELS = [
     "claude-sonnet-4-5-20250929",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite"
+    "gemini-2.5-flash-lite",
+    "deepseek-chat",
+    "deepseek-reasoner",
 ]
 
 class CellData(BaseModel):
@@ -101,6 +104,8 @@ class ModelFactory:
             return ChatAnthropic(model_name=model_name, temperature=0)
         elif model_name.startswith("gemini"):
             return ChatGoogleGenerativeAI(model=model_name, temperature=0)
+        elif model_name.startswith("deepseek"):
+            return ChatDeepSeek(model=model_name, temperature=0)
         else:
             raise ValueError(f"Unsupported model: {model_name}")
 
@@ -289,6 +294,10 @@ class ModelTester:
             'gpt-5-nano': {
                 'input': 0.050,  # $0.050 / 1M tokens
                 'output': 0.400   # $0.400 / 1M tokens
+            },
+            'deepseek-chat': {
+                'input': 0.28,
+                'output': 0.42
             }
         }
 
