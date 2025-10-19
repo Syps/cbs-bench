@@ -5,7 +5,7 @@ import json
 import re
 import requests
 import hashlib
-import os
+import sys
 import time
 from typing import List, Tuple, Dict, Optional
 from datetime import datetime
@@ -26,6 +26,17 @@ from pydantic import BaseModel
 ROWS = 5
 COLS = 4
 
+
+AVAILABLE_MODELS = [
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4-5-20250929",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+]
 
 class CellData(BaseModel):
     name: str
@@ -80,7 +91,7 @@ class GameStateError(Exception):
 class ModelFactory:
     @staticmethod
     def create_model(model_name: str):
-        """Create appropriate LangChain model based on model name."""
+        """Create appropriate model client based on model name."""
         if model_name == 'human':
             return None  # Human mode doesn't need a model
         elif model_name.startswith('gpt'):
@@ -95,7 +106,7 @@ class ModelFactory:
         """Get model-specific configuration."""
         return {
             "temperature": 0,
-            "max_tokens": 1000,
+            "max_tokens": 8192,
             "timeout": 30
         }
 
@@ -103,32 +114,37 @@ class GameChatMemory:
     def __init__(self):
         self.message_history = ChatMessageHistory()
         self.conversation_log = []
-    
+
     def add_system_message(self, content: str):
-        msg = SystemMessage(content=content)
+        msg = SystemMessage(
+            content=content,
+            additional_kwargs={
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }
+        )
         self.message_history.add_message(msg)
         self._log_message("system", content)
-    
+
     def add_user_message(self, content: str):
         msg = HumanMessage(content=content)
         self.message_history.add_message(msg)
         self._log_message("user", content)
-    
+
     def add_ai_message(self, content: str):
         msg = AIMessage(content=content)
         self.message_history.add_message(msg)
         self._log_message("assistant", content)
-    
+
     def _log_message(self, role: str, content: str):
         self.conversation_log.append({
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat()
         })
-    
+
     def get_messages(self):
         return self.message_history.messages
-    
+
     def get_conversation_log(self):
         return self.conversation_log
 
@@ -151,6 +167,7 @@ class ModelTester:
             print(content)
             print("="*50)
         else:
+            # Still log it for conversation history
             self.memory.add_system_message(content)
 
     def send_message_and_get_response(self, content: str, max_retries: int = 3) -> str:
@@ -204,8 +221,7 @@ class ModelTester:
 
         for attempt in range(max_retries):
             try:
-                messages = self.memory.get_messages()
-                response = self.model.invoke(messages)
+                response = self.model.invoke(self.memory.get_messages())
                 response_content = response.content
 
                 # Print AI response to stdout
@@ -217,12 +233,14 @@ class ModelTester:
                 # Track token usage and cost
                 self._update_usage_metrics(response)
 
+                # Log to conversation history (for replay)
                 self.memory.add_ai_message(response_content)
                 return response_content
 
             except Exception as e:
                 if attempt == max_retries - 1:
                     error_msg = f"Model communication failed after {max_retries} attempts: {e}"
+                    print(error_msg)
                     self.memory.add_ai_message(error_msg)
                     raise ModelCommunicationError(error_msg)
                 time.sleep(2 ** attempt)  # Exponential backoff
@@ -232,23 +250,26 @@ class ModelTester:
         # Try to extract token usage from response metadata
         if hasattr(response, 'response_metadata') and response.response_metadata:
             metadata = response.response_metadata
-            
+
             # For OpenAI models
             if 'token_usage' in metadata:
                 usage = metadata['token_usage']
                 input_tokens = usage.get('prompt_tokens', 0)
                 output_tokens = usage.get('completion_tokens', 0)
                 total_tokens = usage.get('total_tokens', input_tokens + output_tokens)
+
                 self.total_tokens += total_tokens
                 self.total_cost += self._calculate_cost_openai(input_tokens, output_tokens)
-            
+
             # For Anthropic models
             elif 'usage' in metadata:
                 input_tokens = metadata['usage'].get('input_tokens', 0)
                 output_tokens = metadata['usage'].get('output_tokens', 0)
                 total_tokens = input_tokens + output_tokens
+
                 self.total_tokens += total_tokens
                 self.total_cost += self._calculate_cost_anthropic(input_tokens, output_tokens)
+
     
     def _calculate_cost_openai(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate cost for OpenAI models based on input/output tokens."""
@@ -289,9 +310,10 @@ class ModelTester:
         return ((input_tokens / 1000) * input_cost_per_1k + 
                 (output_tokens / 1000) * output_cost_per_1k)
     
+
     def get_conversation_history(self):
         return self.memory.get_conversation_log()
-    
+
     def get_usage_metrics(self) -> Tuple[int, float]:
         """Get total tokens used and cost."""
         return self.total_tokens, self.total_cost
@@ -824,8 +846,6 @@ def is_puzzle_complete(current_state: List[List[PuzzleCell]]) -> bool:
 def get_system_prompt() -> str:
     """Get initial system prompt with game rules."""
     return """
-You are playing a logic puzzle game called "Clues by Sam". Here are the rules:
-
 GAME RULES:
 - You have a grid of 20 people (5 rows of 4)
 - Each person is either innocent or criminal
@@ -836,7 +856,7 @@ GAME RULES:
 - You can only make one move at a time
 
 TERMINOLOGY:
--  "Neighbors" always include diagonal neigbors. One person can have up to 8 neighbors.
+-  "Neighbors" always include diagonal neighbors. One person can have up to 8 neighbors.
 - In between (or sometimes just between) means the persons between the two, not including the two. 
 - Connected means a chain of orthogonal adjacency. For example "all criminals in row 1 are connected" means there are no innocents between any two criminals in that row.
 - To the left/right always means somewhere in the same row. Above/below always means somewhere in the same column. 
@@ -857,17 +877,14 @@ IMPORTANT:
 - Explain your reasoning before stating your move
 - If you're unsure, make your best guess
 
+STRATEGY:
+- For each hint given, identify the information that you can definitively verify. 
+Then, try to identify if any of the pieces of definitive information overlap in such a way
+that transitively prove the state of one of the unknown cells.
+
 Ready to start? I'll give you the current puzzle state.
 """
 
-def get_state_prompt_template() -> str:
-    """Template for puzzle state messages."""
-    return """
-CURRENT PUZZLE STATE:
-{serialized_state}
-
-What is your next move?
-"""
 
 def validate_puzzle(value):
     """Validate puzzle argument - must be date (YYYYMMDD) or URL."""
@@ -958,32 +975,26 @@ def run_model_test(
     start_time = time.time()
     moves = []
     current_state: List[List[PuzzleCell]] = initialize_puzzle_state(clues_data)
-    max_moves = 100
-    
+    max_moves = 40
+
     # Initialize model tester
     model_tester = ModelTester(model_name)
-    
+
     # Send system message with game rules
     system_prompt = get_system_prompt()
     model_tester.send_system_message(system_prompt)
-    
+
     # Main game loop
     move_count = 1
-    feedback_message = None
+    consecutive_mistakes = 0
     while move_count < max_moves + 1:
-        #TODO: we are prompting model twice, reduce it to once
-
         try:
             print(f"\n{'='*80}")
             print(f"🎯 MOVE {move_count} (Model: {model_name})")
             print(f"{'='*80}")
 
-            # Serialize current puzzle state
-
-            if feedback_message is not None:
-                state_message = feedback_message
-            else:
-                state_message = serialize_puzzle_state(clues_data, current_state, serialization_method)
+            # Always send current puzzle state (feedback is handled internally)
+            state_message = serialize_puzzle_state(clues_data, current_state, serialization_method)
 
             # Send state to model and get response
             model_response = model_tester.send_message_and_get_response(state_message)
@@ -991,7 +1002,6 @@ def run_model_test(
             # Extract and validate move
             move = extract_move_from_response(model_response)
             is_correct, feedback = validate_move(move, current_state, clues_data)
-
             # Print move result to stdout
             status_emoji = "✅" if is_correct else "❌"
             # print(f"\n{status_emoji} MOVE RESULT:")
@@ -1009,19 +1019,28 @@ def run_model_test(
             })
             
             if is_correct:
+                print("✅ Correct")
+                # Add success feedback to conversation
+                model_tester.memory.add_user_message(f"✅ CORRECT! {feedback}")
                 current_state = update_puzzle_state(current_state, move)
-
-                # Send confirmation message with updated puzzle state
-                updated_puzzle_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
-                feedback_message = f"Correct ✅\n\nUpdated puzzle state:\n{updated_puzzle_state}"
+                consecutive_mistakes = 0  # Reset consecutive mistakes counter
 
                 if is_puzzle_complete(current_state):
-                    model_tester.send_message_and_get_response("Correct ✅\n\nCongratulations! You've solved the puzzle!")
+                    print(f"\n✅ PUZZLE COMPLETED!")
+                    print(f"All moves were correct. Congratulations!")
                     break
             else:
-                # Include current puzzle state after error message
-                current_puzzle_state = serialize_puzzle_state(clues_data, current_state, serialization_method)
-                feedback_message = f"Incorrect move. {feedback} Please try again.\n\nCurrent puzzle state:\n{current_puzzle_state}"
+                print("❌ Incorrect")
+                # Add error feedback to conversation
+                model_tester.memory.add_user_message(f"❌ INCORRECT! {feedback}")
+                # Track consecutive mistakes
+                consecutive_mistakes += 1
+
+                # Check for early stop condition
+                if consecutive_mistakes >= 5:
+                    print(f"\n❌ EARLY STOP: 5 consecutive incorrect moves")
+                    print(f"Game ended early due to repeated mistakes")
+                    break
 
             move_count += 1
             
@@ -1060,7 +1079,7 @@ def run_model_test(
     )
 
 @click.command()
-@click.option('--model', type=str, help='Name of the model to test')
+@click.option('--model', type=click.Choice(AVAILABLE_MODELS), help='Name of the model to test')
 @click.option('--puzzle', type=str, help='Puzzle to test on (YYYYMMDD date or URL, defaults to today)')
 @click.option('--serialization',
               type=click.Choice([e.value for e in SerializationMethod]),
