@@ -6,12 +6,15 @@ import re
 import requests
 import hashlib
 import time
-from typing import List, Tuple
+import os
+import threading
+from typing import List, Tuple, Dict
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -31,15 +34,15 @@ COLS = 4
 
 AVAILABLE_MODELS = [
     "gpt-5",
-    "gpt-5-mini",
-    "gpt-5-nano",
-    "claude-sonnet-4-20250514",
+    # "gpt-5-mini",
+    # "gpt-5-nano",
+    # "claude-sonnet-4-20250514",
     "claude-sonnet-4-5-20250929",
     "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
+    # "gemini-2.5-flash",
+    # "gemini-2.5-flash-lite",
     "deepseek-chat",
-    "deepseek-reasoner",
+    # "deepseek-reasoner",
     "grok-4"
 ]
 
@@ -980,7 +983,7 @@ def print_test_evaluation(test_result: TestResult, results_path: str):
         print("⚠ Warning: Maximum moves (100) reached without completion")
 
 def run_model_test(
-    model_name: str, 
+    model_name: str,
     clues_data: List[dict], 
     puzzle_identifier: str,
     serialization_method: SerializationMethod
@@ -1017,12 +1020,6 @@ def run_model_test(
             # Extract and validate move
             move = extract_move_from_response(model_response)
             is_correct, feedback = validate_move(move, current_state, clues_data)
-            # Print move result to stdout
-            status_emoji = "✅" if is_correct else "❌"
-            # print(f"\n{status_emoji} MOVE RESULT:")
-            # print(f"Move: {move}")
-            # print(f"Feedback: {feedback}")
-            # print("="*80)
             
             # Record move
             moves.append({
@@ -1093,6 +1090,256 @@ def run_model_test(
         cost_usd=cost_usd
     )
 
+class ModelProgress:
+    """Track progress of a single model test."""
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.current_move = 0
+        self.correct_moves = 0
+        self.incorrect_moves = 0
+        self.completed = False
+        self.error = None
+        self.lock = threading.Lock()
+
+    def update(self, move_number: int, is_correct: bool = None):
+        """Update progress with move information."""
+        with self.lock:
+            self.current_move = move_number
+            if is_correct is not None:
+                if is_correct:
+                    self.correct_moves += 1
+                else:
+                    self.incorrect_moves += 1
+
+    def mark_completed(self, completed: bool = True):
+        """Mark the test as completed."""
+        with self.lock:
+            self.completed = completed
+
+    def mark_error(self, error: str):
+        """Mark the test as errored."""
+        with self.lock:
+            self.error = error
+            self.completed = True
+
+    def get_status(self) -> Dict:
+        """Get current status snapshot."""
+        with self.lock:
+            return {
+                'model': self.model_name,
+                'move': self.current_move,
+                'correct': self.correct_moves,
+                'incorrect': self.incorrect_moves,
+                'completed': self.completed,
+                'error': self.error
+            }
+
+def run_model_test_with_progress(
+    model_name: str,
+    clues_data: List[dict],
+    puzzle_identifier: str,
+    serialization_method: SerializationMethod,
+    progress: ModelProgress
+) -> TestResult:
+    """Run model test and update progress tracker."""
+    try:
+        start_time = time.time()
+        moves = []
+        current_state: List[List[PuzzleCell]] = initialize_puzzle_state(clues_data)
+        max_moves = 40
+
+        # Initialize model tester
+        model_tester = ModelTester(model_name)
+
+        # Send system message with game rules
+        system_prompt = get_system_prompt()
+        model_tester.send_system_message(system_prompt)
+
+        # Main game loop
+        move_count = 1
+        consecutive_mistakes = 0
+        while move_count < max_moves + 1:
+            try:
+                # Update progress
+                progress.update(move_count)
+
+                # Always send current puzzle state
+                state_message = serialize_puzzle_state(clues_data, current_state, serialization_method)
+
+                # Send state to model and get response
+                model_response = model_tester.send_message_and_get_response(state_message)
+
+                # Extract and validate move
+                move = extract_move_from_response(model_response)
+                is_correct, feedback = validate_move(move, current_state, clues_data)
+
+                # Update progress with result
+                progress.update(move_count, is_correct)
+
+                # Record move
+                moves.append({
+                    "move_number": move_count,
+                    "move": move,
+                    "correct": is_correct,
+                    "feedback": feedback,
+                    "timestamp": datetime.now().isoformat()
+                })
+
+                if is_correct:
+                    model_tester.memory.add_user_message(f"✅ CORRECT! {feedback}")
+                    current_state = update_puzzle_state(current_state, move)
+                    consecutive_mistakes = 0
+
+                    if is_puzzle_complete(current_state):
+                        progress.mark_completed(True)
+                        break
+                else:
+                    model_tester.memory.add_user_message(f"❌ INCORRECT! {feedback}")
+                    consecutive_mistakes += 1
+
+                    if consecutive_mistakes >= 5:
+                        progress.mark_completed(False)
+                        break
+
+                move_count += 1
+
+            except KeyboardInterrupt:
+                progress.mark_error("Interrupted by user")
+                break
+            except (ModelCommunicationError, ValueError, GameStateError) as e:
+                moves.append({
+                    "move_number": move_count,
+                    "move": "ERROR",
+                    "correct": False,
+                    "feedback": str(e),
+                    "timestamp": datetime.now().isoformat()
+                })
+                progress.mark_error(str(e))
+                break
+
+        # Calculate results
+        duration = time.time() - start_time
+        completed = is_puzzle_complete(current_state)
+        max_moves_reached = move_count >= max_moves + 1
+        tokens_used, cost_usd = model_tester.get_usage_metrics()
+
+        if not progress.get_status()['completed']:
+            progress.mark_completed(completed)
+
+        return TestResult(
+            puzzle_data=clues_data,
+            model_name=model_name,
+            puzzle_identifier=puzzle_identifier,
+            test_date=datetime.now().isoformat(),
+            duration_seconds=duration,
+            conversation=model_tester.get_conversation_history(),
+            moves=moves,
+            completed=completed,
+            total_moves=move_count,
+            max_moves_reached=max_moves_reached,
+            tokens_used=tokens_used,
+            cost_usd=cost_usd
+        )
+    except Exception as e:
+        progress.mark_error(str(e))
+        raise
+
+def display_parallel_progress(progress_trackers: Dict[str, ModelProgress], stop_event: threading.Event):
+    """Display real-time progress of all models."""
+    while not stop_event.is_set():
+        # Clear screen and move cursor to top
+        print("\033[2J\033[H", end="")
+
+        print("="*100)
+        print(f"{'Model':<30} {'Move':<10} {'Correct':<10} {'Incorrect':<10} {'Status':<20}")
+        print("="*100)
+
+        for model_name in sorted(progress_trackers.keys()):
+            status = progress_trackers[model_name].get_status()
+
+            # Format status text
+            if status['error']:
+                status_text = f"ERROR: {status['error'][:15]}"
+            elif status['completed']:
+                if status['correct'] == 19:
+                    status_text = "✅ COMPLETED"
+                else:
+                    status_text = "❌ FAILED"
+            else:
+                status_text = "⏳ Running..."
+
+            print(f"{model_name:<30} {status['move']:<10} {status['correct']:<10} {status['incorrect']:<10} {status_text:<20}")
+
+        print("="*100)
+        time.sleep(0.5)
+
+def run_all_models_parallel(
+    clues_data: List[dict],
+    puzzle_identifier: str,
+    serialization_method: SerializationMethod
+) -> List[TestResult]:
+    """Run all models in parallel and display progress."""
+    # Filter out 'human' model
+    models_to_test = [m for m in AVAILABLE_MODELS if m != 'human']
+
+    # Create progress trackers
+    progress_trackers = {model: ModelProgress(model) for model in models_to_test}
+
+    # Start progress display thread
+    stop_event = threading.Event()
+    display_thread = threading.Thread(
+        target=display_parallel_progress,
+        args=(progress_trackers, stop_event)
+    )
+    display_thread.daemon = True
+    display_thread.start()
+
+    # Run tests in parallel
+    results = []
+    with ThreadPoolExecutor(max_workers=len(models_to_test)) as executor:
+        future_to_model = {
+            executor.submit(
+                run_model_test_with_progress,
+                model,
+                clues_data,
+                puzzle_identifier,
+                serialization_method,
+                progress_trackers[model]
+            ): model
+            for model in models_to_test
+        }
+
+        for future in as_completed(future_to_model):
+            model = future_to_model[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                print(f"\n❌ Error testing {model}: {e}")
+
+    # Stop progress display
+    stop_event.set()
+    display_thread.join(timeout=1)
+
+    # Clear screen and show final results
+    print("\033[2J\033[H", end="")
+    print("\n" + "="*100)
+    print("FINAL RESULTS")
+    print("="*100)
+    print(f"{'Model':<30} {'Completed':<15} {'Moves':<10} {'Correct':<10} {'Incorrect':<10} {'Duration':<12} {'Cost':<10}")
+    print("="*100)
+
+    for result in sorted(results, key=lambda r: r.model_name):
+        completed_icon = "✅" if result.completed else "❌"
+        correct = sum(1 for m in result.moves if m.get('correct', False))
+        incorrect = sum(1 for m in result.moves if not m.get('correct', False))
+
+        print(f"{result.model_name:<30} {completed_icon:<15} {result.total_moves:<10} {correct:<10} {incorrect:<10} {result.duration_seconds:>10.1f}s ${result.cost_usd:>8.4f}")
+
+    print("="*100)
+
+    return results
+
 @click.command()
 @click.option('--model', type=click.Choice(AVAILABLE_MODELS), help='Name of the model to test')
 @click.option('--puzzle', type=str, help='Puzzle to test on (YYYYMMDD date or URL, defaults to today)')
@@ -1101,11 +1348,16 @@ def run_model_test(
               default=SerializationMethod.DEFAULT.value,
               help='Puzzle serialization method')
 @click.option('--preview', is_flag=True, help='Show only the initial puzzle state without running model test')
-def test(model, puzzle, serialization, preview):
+@click.option('--all-models', is_flag=True, help='Test all available models in parallel')
+def test(model, puzzle, serialization, preview, all_models):
     """Test a model on a specific puzzle."""
     # Validate required parameters
-    if not preview and not model:
-        click.echo("Error: --model is required unless using --preview", err=True)
+    if not preview and not model and not all_models:
+        click.echo("Error: --model is required unless using --preview or --all-models", err=True)
+        return
+
+    if model and all_models:
+        click.echo("Error: Cannot specify both --model and --all-models", err=True)
         return
 
     validated_puzzle = validate_puzzle(puzzle)
@@ -1134,6 +1386,28 @@ def test(model, puzzle, serialization, preview):
         print(initial_state)
         return
 
+    serialization_method = SerializationMethod(serialization)
+
+    # Handle --all-models flag
+    if all_models:
+        print(f"\n🚀 Starting parallel tests with all models for puzzle: {validated_puzzle}")
+        print(f"Testing {len([m for m in AVAILABLE_MODELS if m != 'human'])} models in parallel...\n")
+
+        try:
+            results = run_all_models_parallel(clues_data, validated_puzzle, serialization_method)
+
+            # Save all results
+            print("\nSaving results...")
+            for result in results:
+                results_path = save_test_results(result)
+                print(f"  {result.model_name}: {results_path}")
+
+        except Exception as e:
+            click.echo(f"Parallel test failed: {e}", err=True)
+            raise
+
+        return
+
     # Validate model for testing
     try:
         ModelFactory.create_model(model)
@@ -1147,7 +1421,6 @@ def test(model, puzzle, serialization, preview):
     # Step 2: Run the test
     try:
         print(f"\nStarting test with model: {model}")
-        serialization_method = SerializationMethod(serialization)
         test_result = run_model_test(model, clues_data, validated_puzzle, serialization_method)
 
         # Step 3: Save and print results
