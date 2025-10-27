@@ -46,6 +46,9 @@ AVAILABLE_MODELS = [
     "grok-4"
 ]
 
+# Header for parallel model testing
+PARALLEL_TEST_HEADER = "\n\nReady. Set. Deduce! 🏎️💨"
+
 class CellData(BaseModel):
     name: str
     profession: str
@@ -105,7 +108,7 @@ class ModelFactory:
         elif model_name.startswith('gpt'):
             return ChatOpenAI(model_name=model_name, temperature=0)
         elif model_name.startswith('claude'):
-            return ChatAnthropic(model_name=model_name, temperature=0)
+            return ChatAnthropic(model_name=model_name, temperature=0, max_tokens=4096)
         elif model_name.startswith("gemini"):
             return ChatGoogleGenerativeAI(model=model_name, temperature=0)
         elif model_name.startswith("deepseek"):
@@ -163,7 +166,7 @@ class GameChatMemory:
         return self.conversation_log
 
 class ModelTester:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, quiet_mode: bool = False):
         self.model_name = model_name
         self.model = ModelFactory.create_model(model_name)
         self.memory = GameChatMemory()
@@ -171,6 +174,12 @@ class ModelTester:
         self.total_tokens = 0
         self.total_cost = 0.0
         self.is_human = (model_name == 'human')
+        self.quiet_mode = quiet_mode
+
+    def log(self, *args, **kwargs):
+        """Log to stdout only if not in quiet mode."""
+        if not self.quiet_mode:
+            print(*args, **kwargs)
 
     def send_system_message(self, content: str):
         """Send initial system message with game rules."""
@@ -224,12 +233,12 @@ class ModelTester:
 
     def _get_ai_response(self, content: str, max_retries: int = 3) -> str:
         """Get response from AI model."""
-        # Print user message to stdout
-        print("\n" + "="*80)
-        print("📤 USER MESSAGE:")
-        print("="*80)
-        print(content)
-        print("="*80)
+        # Log user message to stdout
+        self.log("\n" + "="*80)
+        self.log("📤 USER MESSAGE:")
+        self.log("="*80)
+        self.log(content)
+        self.log("="*80)
 
         self.memory.add_user_message(content)
 
@@ -238,11 +247,11 @@ class ModelTester:
                 response = self.model.invoke(self.memory.get_messages())
                 response_content = response.content
 
-                # Print AI response to stdout
-                print(f"\n🤖 {self.model_name.upper()} RESPONSE:")
-                print("-"*80)
-                print(response_content)
-                print("-"*80)
+                # Log AI response to stdout
+                self.log(f"\n🤖 {self.model_name.upper()} RESPONSE:")
+                self.log("-"*80)
+                self.log(response_content)
+                self.log("-"*80)
 
                 # Track token usage and cost
                 self._update_usage_metrics(response)
@@ -339,6 +348,7 @@ class ModelTester:
 def fetch_clues_from_website(url=None):
     """Fetch clues data from cluesbysam.com (or custom URL) and save to dated JSON file."""
     base_url = url or "https://cluesbysam.com"
+    print(f"{base_url=}")
     
     # Fetch the main page
     response = requests.get(base_url)
@@ -350,6 +360,8 @@ def fetch_clues_from_website(url=None):
     # Find script tag in head that references index JS file
     script_tags = soup.find('head').find_all('script', src=True)
     index_script_src = None
+
+    print(f"{script_tags=}")
     
     for script in script_tags:
         src = script.get('src')
@@ -361,7 +373,11 @@ def fetch_clues_from_website(url=None):
         raise ValueError("Could not find index JS file in HTML")
     
     # Construct full URL for the JS file
+    print(f"Joining {base_url=} and {index_script_src=}")
+    if not base_url.endswith("/"):
+        base_url = base_url + "/"
     js_url = urljoin(base_url, index_script_src)
+    print("Fetching clues data from " + js_url)
     
     # Fetch the JS file
     js_response = requests.get(js_url)
@@ -1148,8 +1164,8 @@ def run_model_test_with_progress(
         current_state: List[List[PuzzleCell]] = initialize_puzzle_state(clues_data)
         max_moves = 40
 
-        # Initialize model tester
-        model_tester = ModelTester(model_name)
+        # Initialize model tester in quiet mode for parallel execution
+        model_tester = ModelTester(model_name, quiet_mode=True)
 
         # Send system message with game rules
         system_prompt = get_system_prompt()
@@ -1249,6 +1265,10 @@ def display_parallel_progress(progress_trackers: Dict[str, ModelProgress], stop_
     while not stop_event.is_set():
         # Clear screen and move cursor to top
         print("\033[2J\033[H", end="")
+
+        # Display ASCII art header with soft red background
+        print(PARALLEL_TEST_HEADER)
+        print()  # Blank line for spacing
 
         print("="*100)
         print(f"{'Model':<30} {'Move':<10} {'Correct':<10} {'Incorrect':<10} {'Status':<20}")
