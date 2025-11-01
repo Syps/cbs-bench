@@ -43,7 +43,7 @@ AVAILABLE_MODELS = [
     # "gemini-2.5-flash-lite",
     "deepseek-chat",
     # "deepseek-reasoner",
-    "grok-4"
+    # "grok-4"
 ]
 
 # Header for parallel model testing
@@ -1685,6 +1685,201 @@ def find_determined_variables(grid: Grid):
 def cli():
     pass
 
+def load_test_data(test_dir: str) -> Tuple[dict, list]:
+    """Load metadata and moves from a test directory.
+
+    Returns:
+        Tuple of (metadata_dict, moves_list) or (None, None) if files missing/invalid
+    """
+    try:
+        metadata_path = os.path.join('.test_results', test_dir, 'metadata.json')
+        moves_path = os.path.join('.test_results', test_dir, 'moves.json')
+
+        if not os.path.exists(metadata_path) or not os.path.exists(moves_path):
+            return None, None
+
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+
+        with open(moves_path, 'r') as f:
+            moves = json.load(f)
+
+        return metadata, moves
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Warning: Could not load data from {test_dir}: {e}")
+        return None, None
+
+def is_legitimate_finish(metadata: dict, moves: list) -> bool:
+    """Check if game ended legitimately (not an early stop).
+
+    A game is legitimate if ANY of these are true:
+    1. Puzzle was completed successfully
+    2. Max moves limit was reached
+    3. Last 5 moves are not all incorrect (not stuck)
+    """
+    # Criterion 1: Completed successfully
+    if metadata.get('completed', False):
+        return True
+
+    # Criterion 2: Hit max moves
+    if metadata.get('max_moves_reached', False):
+        return True
+
+    # Criterion 3: Last 5 moves not all incorrect
+    if len(moves) >= 5:
+        last_5_correct = [move['correct'] for move in moves[-5:]]
+        # If NOT all False, it's legitimate
+        if not all(c == False for c in last_5_correct):
+            return True
+    elif len(moves) > 0:
+        # If fewer than 5 moves, check if any were correct
+        any_correct = any(move['correct'] for move in moves)
+        if any_correct:
+            return True
+
+    return False  # This is an early stop
+
+def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
+    """Calculate all statistics for a list of tests.
+
+    Args:
+        tests: List of (metadata, moves) tuples
+
+    Returns:
+        Dictionary with statistics: total_games, completion_rate, etc.
+    """
+    if not tests:
+        return {
+            'total_games': 0,
+            'completion_rate': 0.0,
+            'avg_tokens_per_move': 0.0,
+            'avg_time_per_move': 0.0,
+            'completion_rate_no_early_stop': 0.0
+        }
+
+    total_games = len(tests)
+
+    # Completion rate
+    completed_games = sum(1 for metadata, _ in tests if metadata.get('completed', False))
+    completion_rate = (completed_games / total_games) * 100
+
+    # Average tokens per move
+    total_tokens = sum(metadata.get('tokens_used', 0) for metadata, _ in tests)
+    total_moves = sum(metadata.get('total_moves', 0) for metadata, _ in tests)
+    avg_tokens_per_move = total_tokens / total_moves if total_moves > 0 else 0.0
+
+    # Average time per move
+    total_duration = sum(metadata.get('duration_seconds', 0.0) for metadata, _ in tests)
+    avg_time_per_move = total_duration / total_moves if total_moves > 0 else 0.0
+
+    # Completion rate (excluding early stops)
+    legitimate_tests = [(m, mv) for m, mv in tests if is_legitimate_finish(m, mv)]
+    if len(legitimate_tests) > 0:
+        completed_legitimate = sum(1 for m, _ in legitimate_tests if m.get('completed', False))
+        completion_rate_no_early_stop = (completed_legitimate / len(legitimate_tests)) * 100
+    else:
+        completion_rate_no_early_stop = 0.0
+
+    return {
+        'total_games': total_games,
+        'completion_rate': completion_rate,
+        'avg_tokens_per_move': avg_tokens_per_move,
+        'avg_time_per_move': avg_time_per_move,
+        'completion_rate_no_early_stop': completion_rate_no_early_stop
+    }
+
+def format_stats_table(model_stats: Dict[str, dict]) -> str:
+    """Format statistics as a printable table.
+
+    Args:
+        model_stats: Dictionary mapping model_name to stats dict
+
+    Returns:
+        Formatted table string
+    """
+    if not model_stats:
+        return "No test results found."
+
+    lines = []
+    lines.append("="*120)
+    lines.append("MODEL PERFORMANCE STATISTICS")
+    lines.append("="*120)
+    lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'Tokens/Move':>12}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
+    lines.append("="*120)
+
+    # Sort by model name
+    for model_name in sorted(model_stats.keys()):
+        stats = model_stats[model_name]
+
+        games = stats['total_games']
+        completion = f"{stats['completion_rate']:.1f}%"
+        tokens_per_move = f"{stats['avg_tokens_per_move']:,.1f}"
+        time_per_move = f"{stats['avg_time_per_move']:.1f}s"
+        completion_no_early = f"{stats['completion_rate_no_early_stop']:.1f}%"
+
+        lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {tokens_per_move:>12}  {time_per_move:>10}  {completion_no_early:>25}")
+
+    lines.append("="*120)
+
+    return "\n".join(lines)
+
+@click.command()
+@click.option('--model', type=str, help='Filter stats for specific model (optional)')
+def stats(model):
+    """Display performance statistics from test results."""
+    # Check if .test_results exists
+    if not os.path.exists('.test_results'):
+        click.echo("No test results found. The .test_results/ directory does not exist.", err=True)
+        return
+
+    # Scan directories and load test data
+    try:
+        test_dirs = [d for d in os.listdir('.test_results') if os.path.isdir(os.path.join('.test_results', d))]
+    except OSError as e:
+        click.echo(f"Error reading .test_results/ directory: {e}", err=True)
+        return
+
+    if not test_dirs:
+        click.echo("No test results found in .test_results/")
+        return
+
+    # Load and group test data by model
+    model_tests = defaultdict(list)
+
+    for test_dir in test_dirs:
+        metadata, moves = load_test_data(test_dir)
+
+        if metadata is None or moves is None:
+            continue
+
+        # Skip if tokens_used is 0
+        if metadata.get('tokens_used', 0) == 0:
+            continue
+
+        model_name = metadata.get('model_name', 'unknown')
+        model_tests[model_name].append((metadata, moves))
+
+    # Filter by specific model if requested
+    if model:
+        if model not in model_tests:
+            click.echo(f"No test results found for model: {model}")
+            return
+        model_tests = {model: model_tests[model]}
+
+    # Check if any valid tests remain
+    if not model_tests:
+        click.echo("No valid test results found (all tests have tokens_used=0 or were filtered out)")
+        return
+
+    # Calculate stats per model
+    model_stats = {}
+    for model_name, tests in model_tests.items():
+        model_stats[model_name] = calculate_model_stats(tests)
+
+    # Print formatted table
+    table = format_stats_table(model_stats)
+    print(table)
+
 @click.command()
 @click.argument('test_id', type=str)
 def replay(test_id):
@@ -1801,6 +1996,7 @@ cli.add_command(main)
 cli.add_command(ingest)
 cli.add_command(fetch)
 cli.add_command(test)
+cli.add_command(stats)
 cli.add_command(replay)
 
 if __name__ == "__main__":
