@@ -22,4 +22,4 @@ dependencies = [
 ]
 
 [project.scripts]
-logic-solver = "hello:cli"
+logic-solver = "cli:cli"
