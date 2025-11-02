@@ -1718,26 +1718,17 @@ def is_legitimate_finish(metadata: dict, moves: list) -> bool:
     3. Last 5 moves are not all incorrect (not stuck)
     """
     # Criterion 1: Completed successfully
-    if metadata.get('completed', False):
+    if metadata['completed']:
         return True
 
     # Criterion 2: Hit max moves
-    if metadata.get('max_moves_reached', False):
+    if metadata['max_moves_reached']:
         return True
 
     # Criterion 3: Last 5 moves not all incorrect
-    if len(moves) >= 5:
-        last_5_correct = [move['correct'] for move in moves[-5:]]
-        # If NOT all False, it's legitimate
-        if not all(c == False for c in last_5_correct):
-            return True
-    elif len(moves) > 0:
-        # If fewer than 5 moves, check if any were correct
-        any_correct = any(move['correct'] for move in moves)
-        if any_correct:
-            return True
+    last_5_moves = moves[-5:]
 
-    return False  # This is an early stop
+    return len(last_5_moves) >=5 and all(c['correct'] == False for c in last_5_moves)
 
 def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
     """Calculate all statistics for a list of tests.
@@ -1824,8 +1815,10 @@ def format_stats_table(model_stats: Dict[str, dict]) -> str:
     return "\n".join(lines)
 
 @click.command()
-@click.option('--model', type=str, help='Filter stats for specific model (optional)')
-def stats(model):
+@click.option('--model', type=str, help='Filter stats for specific model(s) - comma-separated list (optional)')
+@click.option('--only-same-puzzles', is_flag=True, help='Only analyze puzzles that all models have attempted')
+@click.option('--puzzle', type=str, help='Filter stats for a specific puzzle identifier (optional)')
+def stats(model, only_same_puzzles, puzzle):
     """Display performance statistics from test results."""
     # Check if .test_results exists
     if not os.path.exists('.test_results'):
@@ -1859,17 +1852,88 @@ def stats(model):
         model_name = metadata.get('model_name', 'unknown')
         model_tests[model_name].append((metadata, moves))
 
-    # Filter by specific model if requested
+    # Filter by specific model(s) if requested
     if model:
-        if model not in model_tests:
-            click.echo(f"No test results found for model: {model}")
+        # Parse comma-separated list of models
+        requested_models = [m.strip() for m in model.split(',')]
+
+        # Filter to only requested models
+        filtered_tests = {}
+        missing_models = []
+
+        for requested_model in requested_models:
+            if requested_model in model_tests:
+                filtered_tests[requested_model] = model_tests[requested_model]
+            else:
+                missing_models.append(requested_model)
+
+        # Report missing models
+        if missing_models:
+            click.echo(f"Warning: No test results found for model(s): {', '.join(missing_models)}", err=True)
+
+        # Check if we have any valid models
+        if not filtered_tests:
+            click.echo(f"No test results found for any of the requested models")
             return
-        model_tests = {model: model_tests[model]}
+
+        model_tests = filtered_tests
+
+    # Filter by specific puzzle if requested
+    if puzzle:
+        puzzle_found = False
+        for model_name in list(model_tests.keys()):
+            filtered_tests = [
+                (metadata, moves) for metadata, moves in model_tests[model_name]
+                if metadata.get('puzzle_identifier') == puzzle
+            ]
+            if filtered_tests:
+                puzzle_found = True
+                model_tests[model_name] = filtered_tests
+            else:
+                # Remove models that don't have this puzzle
+                del model_tests[model_name]
+
+        if not puzzle_found:
+            click.echo(f"No test results found for puzzle: {puzzle}")
+            return
+
+        print(f"Analyzing results for puzzle: {puzzle}\n")
 
     # Check if any valid tests remain
     if not model_tests:
         click.echo("No valid test results found (all tests have tokens_used=0 or were filtered out)")
         return
+
+    # Filter to only same puzzles if requested
+    if only_same_puzzles:
+        if len(model_tests) < 2:
+            click.echo("Warning: --only-same-puzzles requires at least 2 models, ignoring flag", err=True)
+        else:
+            # Find puzzles that all models have attempted
+            # Create sets of puzzle identifiers for each model
+            model_puzzle_sets = {}
+            for model_name, tests in model_tests.items():
+                puzzle_ids = {metadata.get('puzzle_identifier') for metadata, _ in tests}
+                model_puzzle_sets[model_name] = puzzle_ids
+
+            # Find intersection of all puzzle sets (puzzles attempted by ALL models)
+            common_puzzles = set.intersection(*model_puzzle_sets.values())
+
+            if not common_puzzles:
+                click.echo("No common puzzles found across all models")
+                return
+
+            # Filter each model's tests to only include common puzzles
+            for model_name in model_tests.keys():
+                filtered_tests = [
+                    (metadata, moves) for metadata, moves in model_tests[model_name]
+                    if metadata.get('puzzle_identifier') in common_puzzles
+                ]
+                model_tests[model_name] = filtered_tests
+
+            # Print info about filtering
+            print(f"Analyzing {len(common_puzzles)} puzzle(s) common to all {len(model_tests)} model(s)")
+            print(f"Common puzzles: {', '.join(sorted(common_puzzles))}\n")
 
     # Calculate stats per model
     model_stats = {}
