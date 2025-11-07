@@ -113,3 +113,22 @@ class ModelProgress:
                 'completed': self.completed,
                 'error': self.error
             }
+
+import enum
+class PuzzleDifficulty(enum.Enum):
+    EASY = 0
+    MEDIUM = 1
+    TRICKY = 2
+    HARD = 3
+    BRUTAL = 4
+    EVIL = 5
+
+
+PUZZLE_PACK_1_DIFFICULTIES = {
+    **{x: PuzzleDifficulty.EASY for x in range(1,6)},
+    **{x: PuzzleDifficulty.MEDIUM for x in range(6,21)},
+    **{x: PuzzleDifficulty.TRICKY for x in range(21,36)},
+    **{x: PuzzleDifficulty.HARD for x in range(36,46)},
+    **{x: PuzzleDifficulty.BRUTAL for x in range(46,49)},
+    **{x: PuzzleDifficulty.EVIL for x in range(49,51)},
+}

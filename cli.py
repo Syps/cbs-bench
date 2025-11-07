@@ -119,7 +119,7 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
         return {
             'total_games': 0,
             'completion_rate': 0.0,
-            'avg_tokens_per_move': 0.0,
+            'pct_moves_correct': 0.0,
             'avg_time_per_move': 0.0,
             'completion_rate_no_early_stop': 0.0
         }
@@ -130,10 +130,14 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
     completed_games = sum(1 for metadata, _ in tests if metadata.get('completed', False))
     completion_rate = (completed_games / total_games) * 100
 
-    # Average tokens per move
-    total_tokens = sum(metadata.get('tokens_used', 0) for metadata, _ in tests)
-    total_moves = sum(metadata.get('total_moves', 0) for metadata, _ in tests)
-    avg_tokens_per_move = total_tokens / total_moves if total_moves > 0 else 0.0
+    # Percentage of moves correct
+    total_moves = 0
+    correct_moves = 0
+    for metadata, moves in tests:
+        total_moves += len(moves)
+        correct_moves += sum(1 for move in moves if move.get('correct', False))
+
+    pct_moves_correct = (correct_moves / total_moves * 100) if total_moves > 0 else 0.0
 
     # Average time per move
     total_duration = sum(metadata.get('duration_seconds', 0.0) for metadata, _ in tests)
@@ -150,7 +154,7 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
     return {
         'total_games': total_games,
         'completion_rate': completion_rate,
-        'avg_tokens_per_move': avg_tokens_per_move,
+        'pct_moves_correct': pct_moves_correct,
         'avg_time_per_move': avg_time_per_move,
         'completion_rate_no_early_stop': completion_rate_no_early_stop
     }
@@ -171,7 +175,7 @@ def format_stats_table(model_stats: Dict[str, dict]) -> str:
     lines.append("="*120)
     lines.append("MODEL PERFORMANCE STATISTICS")
     lines.append("="*120)
-    lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'Tokens/Move':>12}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
+    lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'% Moves Correct':>16}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
     lines.append("="*120)
 
     # Sort by model name
@@ -180,11 +184,11 @@ def format_stats_table(model_stats: Dict[str, dict]) -> str:
 
         games = stats['total_games']
         completion = f"{stats['completion_rate']:.1f}%"
-        tokens_per_move = f"{stats['avg_tokens_per_move']:,.1f}"
+        pct_correct = f"{stats['pct_moves_correct']:.1f}%"
         time_per_move = f"{stats['avg_time_per_move']:.1f}s"
         completion_no_early = f"{stats['completion_rate_no_early_stop']:.1f}%"
 
-        lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {tokens_per_move:>12}  {time_per_move:>10}  {completion_no_early:>25}")
+        lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {pct_correct:>16}  {time_per_move:>10}  {completion_no_early:>25}")
 
     lines.append("="*120)
 
@@ -349,10 +353,6 @@ def stats(model, only_same_puzzles, puzzle):
         metadata, moves = load_test_data(test_dir)
 
         if metadata is None or moves is None:
-            continue
-
-        # Skip if tokens_used is 0
-        if metadata.get('tokens_used', 0) == 0:
             continue
 
         model_name = metadata.get('model_name', 'unknown')
