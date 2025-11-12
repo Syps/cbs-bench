@@ -21,7 +21,7 @@ from fetch import (
     load_puzzle_from_cache,
     fetch_and_cache_puzzle
 )
-from models import CellData, PuzzleCell, TestResult
+from models import CellData, PuzzleCell, TestResult, PuzzleDifficulty, PUZZLE_PACK_1_DIFFICULTIES
 from eval import (
     AVAILABLE_MODELS,
     ModelFactory,
@@ -159,6 +159,42 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
         'completion_rate_no_early_stop': completion_rate_no_early_stop
     }
 
+def extract_puzzle_pack_number(puzzle_identifier: str) -> int | None:
+    """Extract puzzle number from puzzle pack URL.
+
+    Args:
+        puzzle_identifier: Either a date string or URL
+
+    Returns:
+        Puzzle number if URL matches puzzle pack pattern, None otherwise
+    """
+    import re
+
+    # Pattern for puzzle pack URL: .../pack-1/12
+    pattern = r'/pack-1/(\d+)/?$'
+    match = re.search(pattern, puzzle_identifier)
+
+    if match:
+        return int(match.group(1))
+
+    return None
+
+def get_puzzle_difficulty(puzzle_identifier: str) -> PuzzleDifficulty | None:
+    """Get difficulty level for a puzzle identifier.
+
+    Args:
+        puzzle_identifier: Either a date string or URL
+
+    Returns:
+        PuzzleDifficulty enum value, or None if not a puzzle pack puzzle
+    """
+    puzzle_num = extract_puzzle_pack_number(puzzle_identifier)
+
+    if puzzle_num is None:
+        return None
+
+    return PUZZLE_PACK_1_DIFFICULTIES.get(puzzle_num)
+
 def format_stats_table(model_stats: Dict[str, dict]) -> str:
     """Format statistics as a printable table.
 
@@ -191,6 +227,50 @@ def format_stats_table(model_stats: Dict[str, dict]) -> str:
         lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {pct_correct:>16}  {time_per_move:>10}  {completion_no_early:>25}")
 
     lines.append("="*120)
+
+    return "\n".join(lines)
+
+def format_difficulty_stats_table(difficulty_stats: Dict[PuzzleDifficulty, Dict[str, dict]],
+                                  difficulty_puzzles: Dict[PuzzleDifficulty, set[int]]) -> str:
+    """Format difficulty-based statistics as a printable table.
+
+    Args:
+        difficulty_stats: Dictionary mapping difficulty to {model_name: stats_dict}
+        difficulty_puzzles: Dictionary mapping difficulty to set of puzzle numbers
+
+    Returns:
+        Formatted table string
+    """
+    if not difficulty_stats:
+        return "No test results found."
+
+    lines = []
+
+    # Sort difficulties by their enum value (EASY=0, MEDIUM=1, etc.)
+    for difficulty in sorted(difficulty_stats.keys(), key=lambda d: d.value):
+        model_stats = difficulty_stats[difficulty]
+        puzzle_numbers = sorted(difficulty_puzzles.get(difficulty, set()))
+
+        lines.append("\n" + "="*120)
+        lines.append(f"DIFFICULTY: {difficulty.name}")
+        lines.append(f"Puzzles: {', '.join(map(str, puzzle_numbers))}")
+        lines.append("="*120)
+        lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'% Moves Correct':>16}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
+        lines.append("-"*120)
+
+        # Sort by model name
+        for model_name in sorted(model_stats.keys()):
+            stats = model_stats[model_name]
+
+            games = stats['total_games']
+            completion = f"{stats['completion_rate']:.1f}%"
+            pct_correct = f"{stats['pct_moves_correct']:.1f}%"
+            time_per_move = f"{stats['avg_time_per_move']:.1f}s"
+            completion_no_early = f"{stats['completion_rate_no_early_stop']:.1f}%"
+
+            lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {pct_correct:>16}  {time_per_move:>10}  {completion_no_early:>25}")
+
+        lines.append("-"*120)
 
     return "\n".join(lines)
 
@@ -328,7 +408,8 @@ def test(model, puzzle, serialization, preview, all_models):
 @click.option('--model', type=str, help='Filter stats for specific model(s) - comma-separated list (optional)')
 @click.option('--only-same-puzzles', is_flag=True, help='Only analyze puzzles that all models have attempted')
 @click.option('--puzzle', type=str, help='Filter stats for a specific puzzle identifier (optional)')
-def stats(model, only_same_puzzles, puzzle):
+@click.option('--by-difficulty', is_flag=True, help='Group stats by puzzle difficulty (puzzle pack 1 only)')
+def stats(model, only_same_puzzles, puzzle, by_difficulty):
     """Display performance statistics from test results."""
     # Check if .test_results exists
     if not os.path.exists('.test_results'):
@@ -441,14 +522,48 @@ def stats(model, only_same_puzzles, puzzle):
             print(f"Analyzing {len(common_puzzles)} puzzle(s) common to all {len(model_tests)} model(s)")
             print(f"Common puzzles: {', '.join(sorted(common_puzzles))}\n")
 
-    # Calculate stats per model
-    model_stats = {}
-    for model_name, tests in model_tests.items():
-        model_stats[model_name] = calculate_model_stats(tests)
+    # Handle --by-difficulty flag
+    if by_difficulty:
+        # Group tests by difficulty
+        difficulty_model_tests = defaultdict(lambda: defaultdict(list))
+        difficulty_puzzles = defaultdict(set)
 
-    # Print formatted table
-    table = format_stats_table(model_stats)
-    print(table)
+        for model_name, tests in model_tests.items():
+            for metadata, moves in tests:
+                puzzle_id = metadata.get('puzzle_identifier')
+                puzzle_num = extract_puzzle_pack_number(puzzle_id)
+                difficulty = get_puzzle_difficulty(puzzle_id)
+
+                # Only include puzzle pack puzzles
+                if difficulty is not None and puzzle_num is not None:
+                    difficulty_model_tests[difficulty][model_name].append((metadata, moves))
+                    difficulty_puzzles[difficulty].add(puzzle_num)
+
+        # Check if we have any puzzle pack puzzles
+        if not difficulty_model_tests:
+            click.echo("No puzzle pack puzzles found in test results. --by-difficulty only works with puzzle pack 1 puzzles.")
+            return
+
+        # Calculate stats per difficulty and model
+        difficulty_stats = {}
+        for difficulty, model_tests_dict in difficulty_model_tests.items():
+            difficulty_stats[difficulty] = {}
+            for model_name, tests in model_tests_dict.items():
+                difficulty_stats[difficulty][model_name] = calculate_model_stats(tests)
+
+        # Print formatted table
+        table = format_difficulty_stats_table(difficulty_stats, difficulty_puzzles)
+        print(table)
+
+    else:
+        # Calculate stats per model (original behavior)
+        model_stats = {}
+        for model_name, tests in model_tests.items():
+            model_stats[model_name] = calculate_model_stats(tests)
+
+        # Print formatted table
+        table = format_stats_table(model_stats)
+        print(table)
 
 @click.command()
 @click.argument('test_id', type=str)
