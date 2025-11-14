@@ -1,16 +1,18 @@
 # CBS Benchmark
 
-A benchmarking tool for evaluating large language models on logic puzzles using the game ["Clues by Sam"](https://cluesbysam.com).
+> **Benchmarking frontier AI model reasoning capability with [Clues By Sam](https://cluesbysam.com)**
 
-## Overview
+Can large language models truly reason, or are they just sophisticated pattern matchers? This benchmark explores that question through [Clues by Sam](https://cluesbysam.com), a daily logic puzzle that demands pure deduction without shortcuts.
 
-Test frontier LLMs on their ability to solve deductive reasoning puzzles. The tool fetches daily logic puzzles from cluesbysam.com and evaluates how well different models can work through the logical constraints to identify criminals and innocents in a 5x4 grid of characters.
+## What This Is
 
-## TODO
-- [ ] Single command to test multiple/all models
-- [ ] Command to generate performance comparison for a given puzzle (using cache)
-  -  [ ] Show emoji version of performance
-- [ ] Scoring algo
+Clues by Sam presents players with a 5x4 grid of 20 people, each either innocent or criminal. Your only tools are logic clues that unlock progressively as you correctly identify people. No guessing allowed—each move must be logically deducible or it's rejected.
+
+This benchmark converts those web-based puzzles into ASCII grids and runs frontier AI models through them in an agentic loop, measuring how well they handle constraint-based reasoning under pressure. The results are fascinating: GPT-5 Pro achieved near-perfect accuracy, outperforming human solvers, while other models struggled. Does this prove reasoning ability, or just really good pattern recognition? Judge for yourself.
+
+**Read the full analysis:** [Clues By Sam LLM Benchmark](https://www.nicksypteras.com/blog/cbs-benchmark.html)
+
+---
 
 ## How It Works
 
@@ -23,12 +25,15 @@ The goal is to use pure deductive reasoning to identify everyone correctly.
 
 ## Key Features
 
-- **Multi-Model Support**: Test OpenAI GPT, Anthropic Claude, Google Gemini, DeepSeek, and xAI Grok models
-- **Automatic Puzzle Fetching**: Downloads and caches daily puzzles from cluesbysam.com
-- **Human Mode**: Play puzzles yourself to understand the challenge
-- **Comprehensive Logging**: Records conversations, moves, timing, and token usage
-- **Replay System**: Review recorded game sessions step-by-step
-- **Smart Validation**: Ensures moves are logically deducible before checking correctness
+- **Multi-Model Support** — Test OpenAI GPT, Anthropic Claude, Google Gemini, DeepSeek, and xAI Grok models
+- **Automatic Puzzle Fetching** — Downloads and caches daily puzzles from cluesbysam.com
+- **Human Mode** — Play puzzles yourself to experience the challenge firsthand
+- **Comprehensive Logging** — Tracks conversations, moves, timing, token usage, and costs
+- **Replay System** — Review any recorded game session step-by-step
+- **Performance Analytics** — Generate statistics grouped by model, puzzle, or difficulty
+- **Smart Validation** — Rejects moves that aren't logically deducible from available information
+
+---
 
 ## Installation
 
@@ -43,7 +48,12 @@ uv sync
 # Set up API keys for model testing
 export OPENAI_API_KEY="your-openai-key"
 export ANTHROPIC_API_KEY="your-anthropic-key"
+export GOOGLE_API_KEY="your-google-key"
+export DEEPSEEK_API_KEY="your-deepseek-key"
+export XAI_API_KEY="your-xai-key"
 ```
+
+---
 
 ## Usage
 
@@ -62,6 +72,9 @@ logic-solver test --model gpt-5 --puzzle 20241015
 
 # Test on a custom URL
 logic-solver test --model gemini-2.5-pro --puzzle https://example.com/custom-puzzle
+
+# Test all models in parallel
+logic-solver test --all-models --puzzle 20241015
 ```
 
 ### Preview a Puzzle
@@ -76,27 +89,58 @@ logic-solver test --preview --puzzle 20241015
 logic-solver test --model human
 ```
 
+### View Statistics
+```bash
+# Show overall stats for all models
+logic-solver stats
+
+# Show stats for specific model(s)
+logic-solver stats --model claude-sonnet-4-5-20250929
+logic-solver stats --model "gpt-5,deepseek-chat,claude-sonnet-4-5-20250929"
+
+# Show stats grouped by difficulty (puzzle pack 1 only)
+logic-solver stats --by-difficulty
+
+# Show stats for a specific puzzle
+logic-solver stats --puzzle 20241015
+
+# Compare models on same puzzles only
+logic-solver stats --only-same-puzzles
+```
+
 ### Replay a Session
 ```bash
 # Replay a recorded game (see .test_results/ for available sessions)
 logic-solver replay 20241015-claude-sonnet-4-20250514
 ```
 
+### Makefile Commands
+```bash
+# Generate stats for selected models grouped by difficulty
+make stats
+```
+
+---
+
 ## Supported Models
 
-- **OpenAI**: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`
-- **Anthropic**: `claude-sonnet-4-20250514`, `claude-sonnet-4-5-20250929`
-- **Google**: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
-- **DeepSeek**: `deepseek-chat`, `deepseek-reasoner`
-- **xAI**: `grok-4`
-- **Human**: `human` (for manual gameplay)
+| Provider | Models |
+|----------|--------|
+| **OpenAI** | `gpt-5`, `gpt-5-mini`, `gpt-5-nano` |
+| **Anthropic** | `claude-sonnet-4-20250514`, `claude-sonnet-4-5-20250929` |
+| **Google** | `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite` |
+| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` |
+| **xAI** | `grok-4` |
+| **Human** | `human` *(play the puzzle yourself)* |
+
+---
 
 ## Game Rules
 
 ### Grid Layout
-- 5 rows � 4 columns = 20 people
+- 5 rows × 4 columns = 20 people total
 - Each person has a name, profession, and gender
-- Each person is either innocent or criminal
+- Each person is either innocent or criminal (binary classification)
 
 ### Terminology
 - **Neighbors**: Include diagonal neighbors (up to 8 per person)
@@ -111,6 +155,8 @@ logic-solver replay 20241015-claude-sonnet-4-20250514
 - Incorrect moves are rejected with feedback
 - Game ends when all 20 people are correctly identified
 
+---
+
 ## Output Files
 
 Results are saved to `.test_results/{puzzle-id}-{model-name}/`:
@@ -118,6 +164,8 @@ Results are saved to `.test_results/{puzzle-id}-{model-name}/`:
 - `conversation.json`: Full conversation history
 - `moves.json`: All moves attempted with results
 - `puzzle.json`: Original puzzle data
+
+---
 
 ## Example Session
 
@@ -166,28 +214,51 @@ Cost: $0.1234
 Results saved to: .test_results/20241015-claude-sonnet-4-20250514
 ```
 
+---
+
 ## Development
 
 ### Project Structure
-- `hello.py`: Main application logic and CLI
-- `pyproject.toml`: Dependencies and project configuration
-- `.cache/`: Cached puzzle data
-- `.test_results/`: Recorded game sessions
+```
+├── cli.py              # Click-based CLI commands and Z3 constraint solver
+├── eval.py             # Model testing, evaluation, and agentic loop
+├── fetch.py            # Puzzle fetching and caching from cluesbysam.com
+├── models.py           # Pydantic models and data structures
+├── pyproject.toml      # Dependencies and project configuration
+├── .cache/             # Cached puzzle data
+└── .test_results/      # Recorded game sessions with full logs
+```
 
 ### Key Components
-- **Puzzle Fetching**: Scrapes cluesbysam.com and parses JavaScript puzzle data
-- **Hint Translation**: Converts coded hints to natural language
-- **Model Integration**: LangChain-based interfaces for different LLM providers
-- **Validation Engine**: Z3-powered logical constraint checking
-- **Game State Management**: Tracks puzzle progress and move history
+- **Puzzle Fetching** (`fetch.py`) — Scrapes cluesbysam.com and parses JavaScript puzzle data
+- **Hint Translation** — Converts coded hint references to natural language
+- **Model Integration** (`eval.py`) — LangChain-based interfaces for different LLM providers
+- **Validation Engine** (`cli.py`) — Z3-powered logical constraint checking
+- **Game State Management** — Tracks puzzle progress and validates move legality
+
+---
 
 ## Contributing
 
+Contributions are welcome! Whether you want to add support for new models, improve the evaluation logic, or enhance the statistics system:
+
 1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes and test thoroughly
+4. Submit a pull request with a clear description
+
+---
+
+## Citation
+
+If you use this benchmark in your research or analysis, please link back to the [original blog post](https://www.nicksypteras.com/blog/cbs-benchmark.html).
+
+---
 
 ## License
 
 MIT License - see LICENSE file for details.
+
+---
+
+Built with curiosity about AI reasoning by [Nick Sypteras](https://www.nicksypteras.com)
