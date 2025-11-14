@@ -12,6 +12,51 @@ from urllib.parse import urljoin
 from typing import Tuple, List
 
 
+def extract_clues_from_js_url(js_url: str) -> List[dict]:
+    """Fetch and extract clues data from a JavaScript file URL.
+
+    Args:
+        js_url: Full URL to the JavaScript file containing clues data
+
+    Returns:
+        List of clue dictionaries
+
+    Raises:
+        ValueError: If clues data pattern is not found in JS file
+    """
+    print("Fetching clues data from " + js_url)
+
+    # Fetch the JS file
+    js_response = requests.get(js_url)
+    js_response.raise_for_status()
+
+    # Search for the clues data pattern in the JS content
+    js_content = js_response.text
+
+    # Look for array of objects with criminal, profession, name, gender fields
+    # Pattern matches: =[{criminal:!0,profession:"...",name:"...",gender:"...",...},...],nextVar=
+    # Stop at ] followed by comma and next variable assignment
+    pattern = r'=(\[\{.*?criminal:.*?profession:.*?name:.*?gender:.*?\}]),'
+
+    match = re.search(pattern, js_content, re.DOTALL)
+
+    if not match:
+        raise ValueError("Could not find clues data in JS file")
+
+    # Extract the array part
+    clues_text = match.group(1)
+
+    # Try to convert JS object to valid JSON
+    # Replace single quotes with double quotes, handle JS boolean values
+    json_text = clues_text.replace('!0', 'true').replace('!1', 'false')
+    with open('json_text.txt', 'w') as f:
+        f.write(json_text)
+
+    clues_data = json5.loads(json_text)
+
+    return clues_data
+
+
 def fetch_clues_from_website(url=None) -> Tuple[List[dict], str]:
     """Fetch clues data from cluesbysam.com (or custom URL) and save to dated JSON file.
 
@@ -51,35 +96,9 @@ def fetch_clues_from_website(url=None) -> Tuple[List[dict], str]:
     if not base_url.endswith("/"):
         base_url = base_url + "/"
     js_url = urljoin(base_url, index_script_src)
-    print("Fetching clues data from " + js_url)
 
-    # Fetch the JS file
-    js_response = requests.get(js_url)
-    js_response.raise_for_status()
-
-    # Search for the clues data pattern in the JS content
-    js_content = js_response.text
-
-    # Look for array of objects with criminal, profession, name, gender fields
-    # Pattern matches: =[{criminal:!0,profession:"...",name:"...",gender:"...",...},...],nextVar=
-    # Stop at ] followed by comma and next variable assignment
-    pattern = r'=(\[\{.*?criminal:.*?profession:.*?name:.*?gender:.*?\}]),'
-
-    match = re.search(pattern, js_content, re.DOTALL)
-
-    if not match:
-        raise ValueError("Could not find clues data in JS file")
-
-    # Extract the array part
-    clues_text = match.group(1)
-
-    # Try to convert JS object to valid JSON
-    # Replace single quotes with double quotes, handle JS boolean values
-    json_text = clues_text.replace('!0', 'true').replace('!1', 'false')
-    with open('json_text.txt', 'w') as f:
-        f.write(json_text)
-
-    clues_data = json5.loads(json_text)
+    # Fetch and extract clues data from the JS file
+    clues_data = extract_clues_from_js_url(js_url)
 
     # Create filename in .cache folder
     cache_dir = ".cache"
