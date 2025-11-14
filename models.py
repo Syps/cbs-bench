@@ -124,6 +124,26 @@ class PuzzleDifficulty(enum.Enum):
     EVIL = 5
 
 
+MODEL_COST_USD_PER_1M_TOKENS = {  # non-cached tokens
+    "gpt-5-pro": {
+        "input": 125,
+        "output": 1000,
+    },
+    "claude-sonnet-4-5-20250929": {
+        "input": 300,
+        "output": 1500,
+    },
+    "deepseek-chat": {
+        "input": 28,
+        "output": 42,
+    },
+    "gemini-2.5-pro": {
+        "input": 125,
+        "output": 1000,
+    },
+}
+
+
 PUZZLE_PACK_1_DIFFICULTIES = {
     **{x: PuzzleDifficulty.EASY for x in range(1,6)},
     **{x: PuzzleDifficulty.MEDIUM for x in range(6,21)},

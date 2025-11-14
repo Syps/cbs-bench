@@ -113,22 +113,19 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
         tests: List of (metadata, moves) tuples
 
     Returns:
-        Dictionary with statistics: total_games, completion_rate, etc.
+        Dictionary with statistics: puzzles_completed, pct_moves_correct, etc.
     """
     if not tests:
         return {
-            'total_games': 0,
-            'completion_rate': 0.0,
+            'puzzles_completed': 0,
             'pct_moves_correct': 0.0,
+            'avg_cells_correct': 0.0,
             'avg_time_per_move': 0.0,
-            'completion_rate_no_early_stop': 0.0
+            'puzzles_completed_no_early_stop': 0
         }
 
-    total_games = len(tests)
-
-    # Completion rate
-    completed_games = sum(1 for metadata, _ in tests if metadata.get('completed', False))
-    completion_rate = (completed_games / total_games) * 100
+    # Puzzles completed
+    puzzles_completed = sum(1 for metadata, _ in tests if metadata.get('completed', False))
 
     # Percentage of moves correct
     total_moves = 0
@@ -139,24 +136,23 @@ def calculate_model_stats(tests: List[Tuple[dict, list]]) -> dict:
 
     pct_moves_correct = (correct_moves / total_moves * 100) if total_moves > 0 else 0.0
 
+    # Average cells correct (% moves correct as decimal * 20 cells per game)
+    avg_cells_correct = (pct_moves_correct / 100) * 20
+
     # Average time per move
     total_duration = sum(metadata.get('duration_seconds', 0.0) for metadata, _ in tests)
     avg_time_per_move = total_duration / total_moves if total_moves > 0 else 0.0
 
-    # Completion rate (excluding early stops)
+    # Puzzles completed (excluding early stops)
     legitimate_tests = [(m, mv) for m, mv in tests if is_legitimate_finish(m, mv)]
-    if len(legitimate_tests) > 0:
-        completed_legitimate = sum(1 for m, _ in legitimate_tests if m.get('completed', False))
-        completion_rate_no_early_stop = (completed_legitimate / len(legitimate_tests)) * 100
-    else:
-        completion_rate_no_early_stop = 0.0
+    puzzles_completed_no_early_stop = sum(1 for m, _ in legitimate_tests if m.get('completed', False))
 
     return {
-        'total_games': total_games,
-        'completion_rate': completion_rate,
+        'puzzles_completed': puzzles_completed,
         'pct_moves_correct': pct_moves_correct,
+        'avg_cells_correct': avg_cells_correct,
         'avg_time_per_move': avg_time_per_move,
-        'completion_rate_no_early_stop': completion_rate_no_early_stop
+        'puzzles_completed_no_early_stop': puzzles_completed_no_early_stop
     }
 
 def extract_puzzle_pack_number(puzzle_identifier: str) -> int | None:
@@ -208,25 +204,25 @@ def format_stats_table(model_stats: Dict[str, dict]) -> str:
         return "No test results found."
 
     lines = []
-    lines.append("="*120)
+    lines.append("="*145)
     lines.append("MODEL PERFORMANCE STATISTICS")
-    lines.append("="*120)
-    lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'% Moves Correct':>16}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
-    lines.append("="*120)
+    lines.append("="*145)
+    lines.append(f"{'Model':<35} {'# Puzzles Completed':>19}  {'% Moves Correct':>16}  {'Avg Cells Correct':>18}  {'Avg Time/Move':>14}  {'# Completed (No Early Stop)':>28}")
+    lines.append("="*145)
 
     # Sort by model name
     for model_name in sorted(model_stats.keys()):
         stats = model_stats[model_name]
 
-        games = stats['total_games']
-        completion = f"{stats['completion_rate']:.1f}%"
+        puzzles_completed = stats['puzzles_completed']
         pct_correct = f"{stats['pct_moves_correct']:.1f}%"
+        avg_cells = f"{stats['avg_cells_correct']:.1f}"
         time_per_move = f"{stats['avg_time_per_move']:.1f}s"
-        completion_no_early = f"{stats['completion_rate_no_early_stop']:.1f}%"
+        completed_no_early = stats['puzzles_completed_no_early_stop']
 
-        lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {pct_correct:>16}  {time_per_move:>10}  {completion_no_early:>25}")
+        lines.append(f"{model_name:<35} {puzzles_completed:>19}  {pct_correct:>16}  {avg_cells:>18}  {time_per_move:>14}  {completed_no_early:>28}")
 
-    lines.append("="*120)
+    lines.append("="*145)
 
     return "\n".join(lines)
 
@@ -251,26 +247,26 @@ def format_difficulty_stats_table(difficulty_stats: Dict[PuzzleDifficulty, Dict[
         model_stats = difficulty_stats[difficulty]
         puzzle_numbers = sorted(difficulty_puzzles.get(difficulty, set()))
 
-        lines.append("\n" + "="*120)
+        lines.append("\n" + "="*145)
         lines.append(f"DIFFICULTY: {difficulty.name}")
         lines.append(f"Puzzles: {', '.join(map(str, puzzle_numbers))}")
-        lines.append("="*120)
-        lines.append(f"{'Model':<35} {'Games':>6}  {'Completion':>11}  {'% Moves Correct':>16}  {'Time/Move':>10}  {'Completion (No Early Stop)':>25}")
-        lines.append("-"*120)
+        lines.append("="*145)
+        lines.append(f"{'Model':<35} {'# Puzzles Completed':>19}  {'% Moves Correct':>16}  {'Avg Cells Correct':>18}  {'Avg Time/Move':>14}  {'# Completed (No Early Stop)':>28}")
+        lines.append("-"*145)
 
         # Sort by model name
         for model_name in sorted(model_stats.keys()):
             stats = model_stats[model_name]
 
-            games = stats['total_games']
-            completion = f"{stats['completion_rate']:.1f}%"
+            puzzles_completed = stats['puzzles_completed']
             pct_correct = f"{stats['pct_moves_correct']:.1f}%"
+            avg_cells = f"{stats['avg_cells_correct']:.1f}"
             time_per_move = f"{stats['avg_time_per_move']:.1f}s"
-            completion_no_early = f"{stats['completion_rate_no_early_stop']:.1f}%"
+            completed_no_early = stats['puzzles_completed_no_early_stop']
 
-            lines.append(f"{model_name:<35} {games:>6}  {completion:>11}  {pct_correct:>16}  {time_per_move:>10}  {completion_no_early:>25}")
+            lines.append(f"{model_name:<35} {puzzles_completed:>19}  {pct_correct:>16}  {avg_cells:>18}  {time_per_move:>14}  {completed_no_early:>28}")
 
-        lines.append("-"*120)
+        lines.append("-"*145)
 
     return "\n".join(lines)
 
