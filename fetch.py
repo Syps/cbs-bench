@@ -49,9 +49,6 @@ def extract_clues_from_js_url(js_url: str) -> List[dict]:
     # Try to convert JS object to valid JSON
     # Replace single quotes with double quotes, handle JS boolean values
     json_text = clues_text.replace('!0', 'true').replace('!1', 'false')
-    with open('json_text.txt', 'w') as f:
-        f.write(json_text)
-
     clues_data = json5.loads(json_text)
 
     return clues_data

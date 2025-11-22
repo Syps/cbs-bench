@@ -33,6 +33,7 @@ from langchain.memory import ChatMessageHistory
 from models import (
     CellData,
     PuzzleCell,
+    PuzzleState,
     Status,
     SerializationMethod,
     TestResult,
@@ -54,6 +55,7 @@ AVAILABLE_MODELS = [
     # "claude-sonnet-4-20250514",
     "claude-sonnet-4-5-20250929",
     "gemini-2.5-pro",
+    "gemini-3-pro-preview",
     # "gemini-2.5-flash",
     # "gemini-2.5-flash-lite",
     "deepseek-chat",
@@ -510,7 +512,7 @@ def replace_name_references(hint: str, cells: List[CellData]) -> str:
     return re.sub(r'#NAME:(\d+)', replace_match, hint)
 
 
-def serialize_puzzle_state(clues_data: List[dict], current_state: List[List[PuzzleCell]], method: SerializationMethod) -> str:
+def serialize_puzzle_state(clues_data: List[dict], current_state: PuzzleState, method: SerializationMethod) -> str:
     """Serialize puzzle state for model consumption."""
     if method == SerializationMethod.DEFAULT:
         # Count unsolved cells
@@ -577,7 +579,8 @@ def initialize_puzzle_state(clues_data: List[dict]) -> List[List[PuzzleCell]]:
                     name=person_data['name'],
                     profession=person_data['profession'],
                     gender=person_data['gender'],
-                    clue=person_data.get('hint', "NO HINT"),
+                    orig_hint=person_data['orig_hint'],
+                    clue=person_data["hint"],
                     status=status,
                     had_mistake=False,
                     paths=person_data.get('paths', []),

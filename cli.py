@@ -318,7 +318,8 @@ def fetch():
               help='Puzzle serialization method')
 @click.option('--preview', is_flag=True, help='Show only the initial puzzle state without running model test')
 @click.option('--all-models', is_flag=True, help='Test all available models in parallel')
-def test(model, puzzle, serialization, preview, all_models):
+@click.option('--ppp', type=str, help='Puzzle pack puzzles: comma-separated list of puzzle numbers (e.g., "1,2,3")')
+def test(model, puzzle, serialization, preview, all_models, ppp):
     """Test a model on a specific puzzle."""
     # Validate required parameters
     if not preview and not model and not all_models:
@@ -329,7 +330,44 @@ def test(model, puzzle, serialization, preview, all_models):
         click.echo("Error: Cannot specify both --model and --all-models", err=True)
         return
 
+    if puzzle and ppp:
+        click.echo("Error: Cannot specify both --puzzle and --ppp", err=True)
+        return
+
+    # Handle --ppp (puzzle pack puzzles)
+    if ppp:
+        # Parse comma-separated puzzle numbers
+        try:
+            puzzle_numbers = [int(n.strip()) for n in ppp.split(',')]
+        except ValueError:
+            click.echo("Error: --ppp must be a comma-separated list of numbers (e.g., '1,2,3')", err=True)
+            return
+
+        # Construct puzzle pack URLs
+        puzzle_urls = [f"https://cluesbysam.com/s/user/671c185070c51ea6/pack-1/{num}/" for num in puzzle_numbers]
+
+        print(f"Testing {len(puzzle_urls)} puzzle pack puzzle(s): {', '.join(map(str, puzzle_numbers))}")
+
+        # Test each puzzle
+        for puzzle_url in puzzle_urls:
+            print(f"\n{'='*80}")
+            print(f"Testing puzzle: {puzzle_url}")
+            print(f"{'='*80}\n")
+
+            # Run the test for this puzzle
+            _run_single_test(model, puzzle_url, serialization, preview, all_models)
+
+        print(f"\n{'='*80}")
+        print(f"Completed testing {len(puzzle_urls)} puzzle(s)")
+        print(f"{'='*80}")
+        return
+
     validated_puzzle = validate_puzzle(puzzle)
+    _run_single_test(model, validated_puzzle, serialization, preview, all_models)
+
+
+def _run_single_test(model, validated_puzzle, serialization, preview, all_models):
+    """Run a single test on a puzzle (helper function for test command)."""
 
     # Step 1: Fetch and/or load puzzle
     print(f"Loading puzzle: {validated_puzzle}")

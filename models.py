@@ -30,11 +30,14 @@ class PuzzleCell(BaseModel):
     name: str
     profession: str
     gender: str
+    orig_hint: str = ""
     clue: str
     status: Status = Status.UNKNOWN
     had_mistake: bool = False
     paths: List[List[int]] = []
     is_criminal: bool = False
+
+type PuzzleState = List[List[PuzzleCell]]
 
 
 class SerializationMethod(Enum):

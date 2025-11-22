@@ -13,3 +13,5 @@ wheels/
 uv.lock
 # Virtual environments
 .venv
+.test_results
+.*.js
