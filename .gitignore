@@ -1,4 +1,3 @@
-# Python-generated files
 __pycache__/
 *.py[oc]
 build/
@@ -11,7 +10,7 @@ wheels/
 .idea/
 .python-version
 uv.lock
-# Virtual environments
 .venv
 .test_results
 .*.js
+out/*
