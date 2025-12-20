@@ -19,19 +19,17 @@ class CellData(BaseModel):
 
 
 class Status(Enum):
-    """Status of a puzzle cell during gameplay."""
     UNKNOWN = 0
     CRIMINAL = 1
     INNOCENT = 2
 
 
 class PuzzleCell(BaseModel):
-    """A cell in the puzzle grid during gameplay."""
     name: str
     profession: str
     gender: str
-    orig_hint: str = ""
-    clue: str
+    orig_hint: str = ""  # only_trait_in_unit_is_in_unit(unit(between,pair(7,15)),unit(neighbor,6),innocent)
+    clue: str  # The only innocent #BETWEEN:pair(7,15) is #NAMES:6 neighbor
     status: Status = Status.UNKNOWN
     had_mistake: bool = False
     paths: List[List[int]] = []
@@ -41,7 +39,6 @@ type PuzzleState = List[List[PuzzleCell]]
 
 
 class SerializationMethod(Enum):
-    """Method for serializing puzzle state."""
     DEFAULT = "default"
 
 

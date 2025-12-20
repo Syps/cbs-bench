@@ -18,7 +18,7 @@ class DSLParser:
 
     def __init__(self):
         self.signatures = {}  # signature -> (example orig_hint, hint)
-        self.enums = set()
+        self.enums = {}  # enum -> example orig_hint
         self.current_orig_hint = None
         self.current_hint = None
 
@@ -61,7 +61,8 @@ class DSLParser:
             return expr, func_name
 
         # Otherwise it's an enum
-        self.enums.add(expr)
+        if expr not in self.enums:
+            self.enums[expr] = self.current_orig_hint
         return expr, 'enum'
 
     def split_args(self, args_str: str) -> List[str]:
@@ -149,11 +150,13 @@ def main():
             writer.writerow([sig, orig_hint, hint])
     print(f"Signatures written to: {signatures_file}")
 
-    # Write enums to file
-    enums_file = output_dir / "dsl_enums.txt"
-    with open(enums_file, 'w', encoding='utf-8') as f:
-        for enum in sorted(parser.enums):
-            f.write(f"{enum}\n")
+    # Write enums to CSV
+    enums_file = output_dir / "dsl_enums.csv"
+    with open(enums_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(["enum", "example"])
+        for enum in sorted(parser.enums.keys()):
+            writer.writerow([enum, parser.enums[enum]])
     print(f"Enums written to: {enums_file}")
 
 
