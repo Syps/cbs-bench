@@ -181,8 +181,8 @@ class PuzzleValidator:
                     puzzle_cell.status = Status.INNOCENT if model_value else Status.CRIMINAL
                     queue.put(puzzle_cell)
 
-                elif (puzzle_cell.status == Status.CRIMINAL and model_value) \
-                    or (puzzle_cell.status == Status.INNOCENT and not model_value):
+                elif (puzzle_cell.status == Status.CRIMINAL and not model_value) \
+                    or (puzzle_cell.status == Status.INNOCENT and model_value):
                     raise ValueError("Shouldn't happen")
 
         if len(self.solver.model()) != math.prod(self.dimens):

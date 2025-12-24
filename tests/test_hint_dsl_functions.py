@@ -17,115 +17,13 @@ from hint_dsl_functions import (
     Trait,
 )
 from hint_dsl_functions import UnitType
-from models import PuzzleCell, Status
 
-"""
-Fixtures
-"""
-def simple_grid(width, height) -> list[list[BoolRef]]:
-    rows = height
-    cols = width
-    grid = []
-    for r in range(rows):
-        row_refs = []
-        for c in range(cols):
-            row_refs.append(Bool(f"{r}_{c}"))
-        grid.append(row_refs)
-    return grid
-
-@pytest.fixture
-def simple_3x3_constraint_grid():
-    """Create a simple 3x3 constraint grid with Z3 Bool refs"""
-    return simple_grid(3, 3)
-
-@pytest.fixture
-def simple_4x5_constraint_grid():
-    """Create a simple 4x5 constraint grid with Z3 Bool refs"""
-    return simple_grid(4, 5)
-
-
-@pytest.fixture
-def simple_3x3_puzzle_state():
-    """
-    Create a simple 3x3 puzzle state.
-    Layout:
-      0 1 2
-    0 C I C
-    1 I C I
-    2 C I C
-
-    Where C=Criminal, I=Innocent
-    """
-    state = []
-    pattern = [
-        # (Name, is_criminal, profession)
-        [("Sally", True, "builder"), ("Carol", False, "builder"), ("Ned", True, "pilot")],
-        [("Alice", False, "clerk"), ("Bob", True, "coder"), ("Charlie", False, "cook")],
-        [("Dana", True, "cop"), ("Emma", False, "doctor"), ("Frank", True, "farmer")],
-    ]
-
-    for r in range(3):
-        row = []
-        for c in range(3):
-            name, is_criminal, profession = pattern[r][c]
-            cell = PuzzleCell(
-                status=Status.CRIMINAL if is_criminal else Status.INNOCENT,
-                is_criminal=is_criminal,
-                profession=profession,
-                name=name,
-                gender="male",
-                orig_hint="",
-                paths=[],
-                clue=""
-            )
-            row.append(cell)
-        state.append(row)
-
-    return state
-
-
-@pytest.fixture
-def simple_4x5_puzzle_state():
-    """
-    Create a simple 5x5 puzzle state with varied professions.
-    Layout (C=Criminal, I=Innocent):
-      0 1 2 3 4
-    0 C I C I C
-    1 I C I C I
-    2 C I C I C
-    3 I C I C I
-    4 C I C I C
-
-    Professions: alternating between builder, clerk, coder, cook, cop
-    """
-    state = []
-    # (Name, is_criminal, profession)
-    pattern = [
-        [("Grace", True, "builder"), ("Henry", False, "clerk"), ("Iris", True, "coder"), ("Jack", False, "cook")],
-        [("Liam", False, "clerk"), ("Maya", True, "coder"), ("Noah", False, "cook"), ("Olivia", True, "cop")],
-        [("Quinn", True, "coder"), ("Rachel", False, "cook"), ("Sam", True, "cop"), ("Tara", True, "builder")],
-        [("Victor", False, "cook"), ("Wendy", True, "cop"), ("Xavier", False, "builder"), ("Yara", False, "clerk")],
-        [("Amy", True, "cop"), ("Ben", False, "builder"), ("Claire", True, "clerk"), ("David", False, "coder")],
-    ]
-
-    for r in range(5):
-        row = []
-        for c in range(4):
-            name, is_criminal, profession = pattern[r][c]
-            cell = PuzzleCell(
-                status=Status.CRIMINAL if is_criminal else Status.INNOCENT,
-                is_criminal=is_criminal,
-                profession=profession,
-                name=name,
-                gender="male" if c % 2 == 0 else "female",
-                orig_hint="",
-                paths=[],
-                clue=""
-            )
-            row.append(cell)
-        state.append(row)
-
-    return state
+from fixtures import (
+    simple_4x5_puzzle_state,
+    simple_4x5_constraint_grid,
+    simple_3x3_puzzle_state,
+    simple_3x3_constraint_grid,
+)
 
 
 class TestRowHelper:
@@ -306,6 +204,7 @@ class TestAllTraitsAreNeighborsInUnit:
         actual_constraint = result.constraint
 
         assert actual_constraint.eq(expected_constraint)
+        assert result.hint_text == "All criminals above David are connected"
 
     def test_all_innocents_above_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all innocents in a vertical unit (column) are connected"""
@@ -335,6 +234,7 @@ class TestAllTraitsAreNeighborsInUnit:
         actual_constraint = result.constraint
 
         assert actual_constraint.eq(expected_constraint)
+        assert result.hint_text == "All innocents above David are connected"
 
     def test_all_criminals_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all criminals in a horizontal unit (row) are connected"""
@@ -356,6 +256,7 @@ class TestAllTraitsAreNeighborsInUnit:
         actual_constraint = result.constraint
 
         assert actual_constraint.eq(expected_constraint)
+        assert result.hint_text == "All criminals to the left of Olivia are connected"
 
     def test_all_innocents_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all innocents in a horizontal unit (row) are connected"""
@@ -390,8 +291,8 @@ class TestAllTraitsAreNeighborsInUnit:
         expected_constraint = And(
             Implies(
                 And(
-                    simple_4x5_constraint_grid[3][2],
-                    simple_4x5_constraint_grid[3][0]
+                    simple_4x5_constraint_grid[3][0],
+                    simple_4x5_constraint_grid[3][2]
                 ),
                 simple_4x5_constraint_grid[3][1]
             )
@@ -402,7 +303,6 @@ class TestAllTraitsAreNeighborsInUnit:
 
     def test_all_innocents_to_left_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all innocents in a horizontal unit (row, reversed) are connected"""
-        # Pair(10, 8) is row 2, cols 2-0 (indices 10, 9, 8) - reversed
         unit = Unit(UnitType.BETWEEN, Pair(10, 8))
         const = AllTraitsAreNeighborsInUnit(unit, Trait.INNOCENT)
 
@@ -412,8 +312,8 @@ class TestAllTraitsAreNeighborsInUnit:
         expected_constraint = And(
             Implies(
                 And(
-                    Not(simple_4x5_constraint_grid[2][2]),
-                    Not(simple_4x5_constraint_grid[2][0])
+                    Not(simple_4x5_constraint_grid[2][0]),
+                    Not(simple_4x5_constraint_grid[2][2])
                 ),
                 Not(simple_4x5_constraint_grid[2][1])
             )
