@@ -23,3 +23,8 @@ dependencies = [
 
 [project.scripts]
 logic-solver = "cli:cli"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=9.0.2",
+]

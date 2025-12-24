@@ -1,16 +1,21 @@
 
 import dataclasses
 import math
+import pdb
+
 from models import PuzzleState, Status, PuzzleCell
 from enum import Enum
+from abc import ABC, abstractmethod
 import ast
 from z3 import (
     Int,
     Bool,
-    solve,
+    Not,
     SortRef,
+    Sum,
     And,
-    Or,
+    BoolVal,
+    Implies,
     BoolRef,
     Solver,
     sat,
@@ -70,29 +75,113 @@ class Pair:
         self.b_index = b_index
 
 
+def idx_to_coord(idx: int, dimens: tuple[int, int]) -> tuple[int, int]:
+    rows, cols = dimens
+    return idx // cols, idx % cols
+
+# despite the name, between seems to be inclusive of the given indexes, depending on vert or horiz
+def between(pair: Pair, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    dimens = len(constraint_grid), len(constraint_grid[0])
+    r1, c1 = idx_to_coord(pair.a_index, dimens)
+    r2, c2 = idx_to_coord(pair.b_index, dimens)
+
+    if r1 != r2 and c1 != c2:
+        raise ValueError(f"Pair indices must share same column or row. Got ({r1},{c1}) and ({r2},{c2}).")
+
+    r_asc = sorted([r1, r2])
+    c_asc = sorted([c1, c2])
+
+    # if r1 == r2:
+    c_asc[1] += 1
+    # else:
+    r_asc[1] += 1
+
+    cells = []
+
+    for r in range(*r_asc):
+        for c in range(*c_asc):
+            cells.append(constraint_grid[r][c])
+
+    return cells
+
+def col(index: int, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    return [r[index] for r in constraint_grid]
+
+def row(index: int, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    return constraint_grid[index]
+
+def corners(puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    return [
+        constraint_grid[0][0],
+        constraint_grid[0][-1],
+        constraint_grid[-1][0],
+        constraint_grid[-1][-1],
+    ]
+
+def edges(puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    return [
+        # top row
+        *constraint_grid[0],
+        # bottom row
+        *constraint_grid[-1],
+        # left edge
+        *[r[0] for r in constraint_grid[1:-1]],
+        # right edge
+        *[r[-1] for r in constraint_grid[1:-1]],
+    ]
+
+def profession_bools(profession: Profession, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
+    bools = []
+    for i_r, _row in enumerate(puzzle_state):
+        for i_c, cell in enumerate(_row):
+            if cell.profession == profession.value:
+                bools.append(constraint_grid[i_r][i_c])
+    return bools
 
 
-def between(pair: Pair) -> list[int]:
-    pass
+def neighbor_indexes(index: int, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
 
-def col(index: int) -> list[int]:
-    pass
+    rows, cols = len(constraint_grid), len(constraint_grid[0])
+    _row, _col = idx_to_coord(index, (rows, cols))
+    bools = []
+    for r in [_row-1, _row, _row+1]:
+        for c in [_col-1, _col, _col+1]:
+            if r == _row and c == _col:
+                continue
 
-def row(index: int) -> list[int]:
-    pass
+            if 0 <= r < rows and 0 <= c < cols:
+                bools.append(constraint_grid[r][c])
 
-def corners() -> list[int]:
-    pass
+    return bools
 
-def edges() -> list[int]:
-    pass
 
-def profession_indexes(profession: Profession) -> list[int]:
-    pass
 
-def neighbor_indexes(index: int) -> list[int]:
-    pass
+@dataclasses.dataclass(frozen=True)
+class DSLEvalResult:
+    constraint: SortRef
+    hint_text: str
 
+
+class DSLFuncEvaluator(ABC):
+    """Abstract base class for DSL function evaluators"""
+
+    @abstractmethod
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        """Evaluate the DSL function and return a constraint and hint text"""
+        pass
+
+    @abstractmethod
+    def hint_text(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> str:
+        """Return the human-readable hint text for this constraint"""
+        pass
+
+
+
+class Pair:
+
+    def __init__(self, a_index: int, b_index: int):
+        self.a_index = a_index
+        self.b_index = b_index
 
 class Unit:
     # Example: unit_shares_n_out_of_n_traits_with_unit(unit(edge,void),unit(neighbor,2),criminal,1,10)
@@ -102,27 +191,36 @@ class Unit:
         self.unit_type = unit_type
         self.selector = selector
 
-    def cells(self) -> list[int]:
+    def count_trait(self, trait: Trait, puzzle_state: PuzzleState) -> int:
+        cells = self.cells(puzzle_state)
+        trait_is_criminal = trait == Trait.CRIMINAL
+
+        return sum(
+            1 for cell in cells if
+            (trait_is_criminal and cell.is_criminal) or (not trait_is_criminal and not cell.is_criminal)
+        )
+
+    def cells(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
         if self.unit_type == UnitType.BETWEEN:
-            return between(self.selector)
-
-        if self.unit_type == UnitType.COL:
-            return col(self.selector)
-
-        if self.unit_type == UnitType.CORNER:
-            return corners()
-
-        if self.unit_type == UnitType.EDGE:
-            return edges()
-
-        if self.unit_type == UnitType.PROFESSION:
-            return profession_indexes(self.selector)
-
-        if self.unit_type == UnitType.NEIGHBOR:
-            return neighbor_indexes(self.selector)
+            return between(self.selector, puzzle_state, constraint_grid)
 
         if self.unit_type == UnitType.ROW:
-            return row(self.selector)
+            return row(self.selector, puzzle_state, constraint_grid)
+
+        if self.unit_type == UnitType.COL:
+            return col(self.selector, puzzle_state, constraint_grid)
+
+        if self.unit_type == UnitType.CORNER:
+            return corners(puzzle_state, constraint_grid)
+
+        if self.unit_type == UnitType.EDGE:
+            return edges(puzzle_state, constraint_grid)
+
+        if self.unit_type == UnitType.PROFESSION:
+            return profession_bools(self.selector, puzzle_state, constraint_grid)
+
+        if self.unit_type == UnitType.NEIGHBOR:
+            return neighbor_indexes(self.selector, puzzle_state, constraint_grid)
 
         raise ValueError(f"Unknown unit type: {self.unit_type}")
 
@@ -152,128 +250,91 @@ class Unit:
 # Special constant for void value used with edge/corner units
 VOID = "void"
 
-# DSL FUNCTIONS
-def all_traits_are_neighbors_in_unit(unit: Unit, trait: Trait):
-    # Example: all_traits_are_neighbors_in_unit(unit(between,pair(0,16)),criminal)
-    pass
 
-def all_units_have_at_least_n_traits(unit_type: UnitType, trait: Trait, n: int):
-    # Example: all_units_have_at_least_n_traits(row,innocent,2)
-    pass
+def all_units(unit_type: UnitType, constraint_grid: list[list[BoolRef]]) -> list[Unit]:
+    if unit_type == UnitType.ROW:
+        return [Unit(unit_type, i) for i in range(len(constraint_grid))]
 
-def both_traits_are_neighbors_in_unit(unit: Unit, trait: Trait):
-    # Example: both_traits_are_neighbors_in_unit(unit(between,pair(3,15)),innocent)
-    pass
+    if unit_type == UnitType.COL:
+        return [Unit(unit_type, i) for i in range(len(constraint_grid[0]))]
 
-def both_traits_in_unit_are_in_unit(unit_1: Unit, unit_2: Unit, trait: Trait):
-    # Example: both_traits_in_unit_are_in_unit(unit(col,3),unit(neighbor,11),innocent)
-    pass
+    if unit_type == UnitType.NEIGHBOR:
+        units = []
+        n_rows = len(constraint_grid)
+        n_cols = len(constraint_grid[0])
+        for i in range(n_rows):
+            for j in range(n_cols):
+                units.append(Unit(unit_type, i*n_cols + j))
+        return units
 
-def equal_number_of_traits_in_units(unit_1: Unit, unit_2: Unit, trait: Trait):
-    # Example: equal_number_of_traits_in_units(unit(neighbor,0),unit(neighbor,7),innocent)
-    pass
 
-def equal_traits_and_traits_in_unit(unit: Unit, trait_1: Trait, trait_2: Trait):
-    # Example: equal_traits_and_traits_in_unit(unit(between,pair(15,19)),criminal,innocent)
-    pass
-
-def every_profession_has_a_trait_in_dir(profession: Profession, trait: Trait, dx: int, dy: int):
-    # Example: every_profession_has_a_trait_in_dir(guard,criminal,-1,0)
-    pass
-
-def has_most_traits(unit: Unit, trait: Trait):
-    # Example: has_most_traits(unit(col,4),innocent)
-    pass
-
-def has_trait(cell_id: int, trait: Trait):
-    # Example: has_trait(19,innocent)
-    pass
-
-def is_not_only_trait_in_unit(unit: Unit, cell_id: int, trait: Trait):
-    # Example: is_not_only_trait_in_unit(unit(between,pair(5,7)),5,criminal)
-    pass
-
-def is_one_of_n_traits_in_unit(unit: Unit, cell_id: int, trait: Trait, n: int):
-    # Example: is_one_of_n_traits_in_unit(unit(neighbor,6),5,criminal,5)
-    pass
-
-def min_number_of_traits_in_unit(unit: Unit, trait: Trait, min_count: int):
-    # Example: min_number_of_traits_in_unit(unit(edge,void),criminal,7)
-    pass
-
-def more_traits_in_unit_than_unit(unit_1: Unit, unit_2: Unit, trait: Trait):
-    # Example: more_traits_in_unit_than_unit(unit(neighbor,2),unit(neighbor,19),innocent)
-    pass
-
-def more_traits_than_traits_in_unit(unit: Unit, trait_1: Trait, trait_2: Trait):
-    # Example: more_traits_than_traits_in_unit(unit(neighbor,17),criminal,innocent)
-    pass
-
-def n_professions_have_trait_in_dir(profession: Profession, trait: Trait, dx: int, dy: int, n: int):
-    # Example: n_professions_have_trait_in_dir(singer,criminal,0,-1,0)
-    pass
-
-def number_of_traits(trait: Trait, count: int):
-    # Example: number_of_traits(criminal,16)
-    pass
-
-def number_of_traits_in_unit(unit: Unit, trait: Trait, count: int):
-    # Example: number_of_traits_in_unit(unit(between,pair(1,5)),innocent,1)
-    pass
-
-def odd_number_of_traits_in_unit(unit: Unit, trait: Trait):
-    # Example: odd_number_of_traits_in_unit(unit(profession,guard),innocent)
-    pass
-
-def only_one_unit_has_exactly_n_traits(unit_type: UnitType, trait: Trait, n: int):
-    # Example: only_one_unit_has_exactly_n_traits(col,innocent,1)
-    pass
-
-def only_trait_in_unit_is_in_unit(unit_1: Unit, unit_2: Unit, trait: Trait):
-    # Example: only_trait_in_unit_is_in_unit(unit(between,pair(0,2)),unit(between,pair(1,3)),innocent)
-    pass
-
-def only_unit_has_exactly_n_traits(unit: Unit, trait: Trait, n: int):
-    # Example: only_unit_has_exactly_n_traits(unit(neighbor,19),innocent,1)
-    pass
-
-def total_number_of_traits_in_units(unit_1: Unit, unit_2: Unit, trait: Trait, total: int):
-    # Example: total_number_of_traits_in_units(unit(neighbor,11),unit(neighbor,16),innocent,4)
-    pass
-
-def unit_shares_n_out_of_n_traits_with_unit(unit_1: Unit, unit_2: Unit, trait: Trait, n: int, total: int):
-    # Example: unit_shares_n_out_of_n_traits_with_unit(unit(edge,void),unit(neighbor,2),criminal,1,10)
-    pass
-
-def units_share_n_traits(unit_1: Unit, unit_2: Unit, trait: Trait, n: int):
-    # Example: units_share_n_traits(unit(between,pair(2,14)),unit(neighbor,13),innocent,0)
-    pass
-
-def units_share_odd_n_traits(unit_1: Unit, unit_2: Unit, trait: Trait):
-    # Example: units_share_odd_n_traits(unit(edge,void),unit(neighbor,7),innocent)
-    pass
+    raise ValueError(f"Unexpected unit type passed to all_units: {unit_type}")
 
 
 # DSL Constraint Classes
 
-class AllTraitsAreNeighborsInUnit:
+class AllTraitsAreNeighborsInUnit(DSLFuncEvaluator):
     # Example: all_traits_are_neighbors_in_unit(unit(between,pair(0,16)),criminal)
     # Hint: "All criminals #BETWEEN:pair(0,16) are connected"
-    def __init__(self, unit: Unit, trait: Trait, constraint_grid):
+    def __init__(self, unit: Unit, trait: Trait):
         self.unit = unit
         self.trait = trait
 
-    def hint_text(self) -> str:
-        return f"All {self.trait.hint_text()} {self.unit.hint_text()} are connected"
+    def hint_text(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> str:
+        label = "criminals" if self.trait == Trait.CRIMINAL else "innocents"
 
-    def eval(self) -> SortRef:
-        is_innocent = self.trait == Trait.INNOCENT
-        return And([c == is_innocent for c in self.unit.cells()])
+        if not hasattr(self.unit.selector, 'a_index') or \
+            not hasattr(self.unit.selector, 'b_index'):
+            raise ValueError(f"Unexpected unit type: {self.unit}")
+
+        a_index = self.unit.selector.a_index
+        b_index = self.unit.selector.b_index
+
+        dimens = len(constraint_grid), len(constraint_grid[0])
+        r1, c1 = idx_to_coord(a_index, dimens)
+        r2, c2 = idx_to_coord(b_index, dimens)
+
+        if r1 == r2:
+            if sorted([c1, c2])[0] == 0:
+                position = "to the left of"
+                name = puzzle_state[r1][-1].name
+            else:
+                position = "to the right of"
+                name = puzzle_state[r1][0].name
+        else:
+            if sorted([r1, r2])[0] == 0:
+                position = "above"
+                name = puzzle_state[-1][c1].name
+            else:
+                position = "below"
+                name = puzzle_state[0][c1].name
+
+        return f"All {label} {position} {name} are connected"
+
+    def connected(self, bools: list[BoolRef], is_criminal: bool):
+        if len(bools) <= 2:
+            return BoolVal(True)
+
+        # Normalize: if checking for False connectivity, invert the perspective
+        check = [(b if is_criminal else Not(b)) for b in bools]
+
+        constraints = []
+        for i in range(len(check) - 2):
+            constraints.append(Implies(And(check[i], check[i + 2]), check[i + 1]))
+
+        return And(constraints)
+
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        is_criminal = self.trait == Trait.CRIMINAL
+        constraint = self.connected(self.unit.cells(puzzle_state, constraint_grid), is_criminal)
+
+        return DSLEvalResult(
+            constraint=constraint,
+            hint_text=self.hint_text(puzzle_state, constraint_grid),
+        )
 
 
-
-
-class AllUnitsHaveAtLeastNTraits:
+class AllUnitsHaveAtLeastNTraits(DSLFuncEvaluator):
     # Example: all_units_have_at_least_n_traits(row,innocent,2)
     # Hint: Each row has at least 2 innocents
     def __init__(self, unit_type: UnitType, trait: Trait, n: int):
@@ -287,19 +348,60 @@ class AllUnitsHaveAtLeastNTraits:
         else:
             return f"Each {self.unit_type.hint_text()} has at least {self.n} {self.trait.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        units = all_units(self.unit_type, constraint_grid)
+        and_constraints = []
+        for unit in units:
+            cells = unit.cells(puzzle_state, constraint_grid)
+            if self.trait == Trait.CRIMINAL:
+                and_constraints.append(
+                    Sum([c for c in cells]) == self.n
+                )
+            else:
+                and_constraints.append(
+                    Sum([c for c in cells]) == len(cells) - self.n
+                )
 
-class BothTraitsAreNeighborsInUnit:
+        constraint = And(and_constraints)
+
+        return DSLEvalResult(
+            constraint=constraint,
+            hint_text=self.hint_text(),
+        )
+
+
+class BothTraitsAreNeighborsInUnit(DSLFuncEvaluator):
     # Example: both_traits_are_neighbors_in_unit(unit(between,pair(3,15)),innocent)
     # Hint: "Both innocents #BETWEEN:pair(3,15) are connected"
+    # The unit will ALWAYS be a between pair and it's implied they are connected
     def __init__(self, unit: Unit, trait: Trait):
         self.unit = unit
         self.trait = trait
 
     def hint_text(self) -> str:
+        # needs to be fixed to be "to the right of" or "above", etc.
+        # See https://cluesbysam.com/s/user/671c185070c51ea6/pack-1/47/
+        # (hash: b4a2be0c47822689baa6d1ff5749c4e8)
         return f"Both {self.trait.hint_text()} {self.unit.hint_text()} are connected"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        cells = self.unit.cells(puzzle_state, constraint_grid)
+        is_criminal = self.trait == Trait.CRIMINAL
+        or_constraints = [
 
-class BothTraitsInUnitAreInUnit:
+        ]
+        # iterate over cells with a window of 2
+        for c1, c2 in zip(cells, cells[1:]):
+            or_constraints.append(And(
+                c1 == is_criminal,
+                c2 == is_criminal
+            ))
+
+        return And(Sum([c == is_criminal for c in cells]) == 2, or_constraints)
+
+
+
+class BothTraitsInUnitAreInUnit(DSLFuncEvaluator):
     # Example: both_traits_in_unit_are_in_unit(unit(col,3),unit(neighbor,11),innocent)
     # Hint: Both innocents in column #C:3 are #NAMES:11 neighbors
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait):
@@ -310,8 +412,11 @@ class BothTraitsInUnitAreInUnit:
     def hint_text(self) -> str:
         return f"Both {self.trait.hint_text()} {self.unit_1.hint_text()} are {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class EqualNumberOfTraitsInUnits:
+
+class EqualNumberOfTraitsInUnits(DSLFuncEvaluator):
     # Example: equal_number_of_traits_in_units(unit(neighbor,0),unit(neighbor,7),innocent)
     # Hint: #NAME:0 and #NAME:7 have an equal number of innocent neighbors
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait):
@@ -322,8 +427,11 @@ class EqualNumberOfTraitsInUnits:
     def hint_text(self) -> str:
         return f"{self.unit_1.hint_text()} and {self.unit_2.hint_text()} have an equal number of {self.trait.value} {self.unit_1.unit_type.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class EqualTraitsAndTraitsInUnit:
+
+class EqualTraitsAndTraitsInUnit(DSLFuncEvaluator):
     # Example: equal_traits_and_traits_in_unit(unit(between,pair(15,19)),criminal,innocent)
     # Hint: "There are as many criminals as innocents #BETWEEN:pair(15,19)"
     def __init__(self, unit: Unit, trait_1: Trait, trait_2: Trait):
@@ -334,8 +442,11 @@ class EqualTraitsAndTraitsInUnit:
     def hint_text(self) -> str:
         return f"There are as many {self.trait_1.hint_text()} as {self.trait_2.hint_text()} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class EveryProfessionHasATraitInDir:
+
+class EveryProfessionHasATraitInDir(DSLFuncEvaluator):
     # Example: every_profession_has_a_trait_in_dir(guard,criminal,-1,0)
     # Hint: Every #PROF:guard has a criminal directly to the left of them
     def __init__(self, profession: Profession, trait: Trait, dx: int, dy: int):
@@ -360,8 +471,11 @@ class EveryProfessionHasATraitInDir:
         else:
             return f"at ({dx},{dy})"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class HasMostTraits:
+
+class HasMostTraits(DSLFuncEvaluator):
     # Example: has_most_traits(unit(col,4),innocent)
     # Hint: Column #C:4 has more innocents than any other column
     def __init__(self, unit: Unit, trait: Trait):
@@ -372,8 +486,11 @@ class HasMostTraits:
         unit_type_name = self.unit.unit_type.hint_text()
         return f"{self.unit.hint_text().capitalize()} has more {self.trait.hint_text()} than any other {unit_type_name}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class HasTrait:
+
+class HasTrait(DSLFuncEvaluator):
     # Example: has_trait(19,innocent)
     # Hint: Each #PROF:cook neighboring me is innocent
     def __init__(self, cell_id: int, trait: Trait):
@@ -384,8 +501,11 @@ class HasTrait:
         # Note: This hint seems context-dependent based on the example
         return f"Cell {self.cell_id} is {self.trait.value}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class IsNotOnlyTraitInUnit:
+
+class IsNotOnlyTraitInUnit(DSLFuncEvaluator):
     # Example: is_not_only_trait_in_unit(unit(between,pair(5,7)),5,criminal)
     # Hint: "#NAME:5 is one of two or more criminals #BETWEEN:pair(5,7)"
     def __init__(self, unit: Unit, cell_id: int, trait: Trait):
@@ -396,8 +516,11 @@ class IsNotOnlyTraitInUnit:
     def hint_text(self) -> str:
         return f"Cell {self.cell_id} is one of two or more {self.trait.hint_text()} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class IsOneOfNTraitsInUnit:
+
+class IsOneOfNTraitsInUnit(DSLFuncEvaluator):
     # Example: is_one_of_n_traits_in_unit(unit(neighbor,6),5,criminal,5)
     # Hint: #NAME:5 is one of #NAMES:6 5 criminal neighbors
     def __init__(self, unit: Unit, cell_id: int, trait: Trait, n: int):
@@ -409,8 +532,11 @@ class IsOneOfNTraitsInUnit:
     def hint_text(self) -> str:
         return f"Cell {self.cell_id} is one of {self.n} {self.trait.value} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class MinNumberOfTraitsInUnit:
+
+class MinNumberOfTraitsInUnit(DSLFuncEvaluator):
     # Example: min_number_of_traits_in_unit(unit(edge,void),criminal,7)
     # Hint: There are at least 7 criminals on the edges
     def __init__(self, unit: Unit, trait: Trait, min_count: int):
@@ -421,8 +547,11 @@ class MinNumberOfTraitsInUnit:
     def hint_text(self) -> str:
         return f"There are at least {self.min_count} {self.trait.hint_text()} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class MoreTraitsInUnitThanUnit:
+
+class MoreTraitsInUnitThanUnit(DSLFuncEvaluator):
     # Example: more_traits_in_unit_than_unit(unit(neighbor,2),unit(neighbor,19),innocent)
     # Hint: #NAME:2 has more innocent neighbors than #NAME:19
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait):
@@ -433,8 +562,11 @@ class MoreTraitsInUnitThanUnit:
     def hint_text(self) -> str:
         return f"{self.unit_1.hint_text()} has more {self.trait.value} {self.unit_1.unit_type.hint_text()} than {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class MoreTraitsThanTraitsInUnit:
+
+class MoreTraitsThanTraitsInUnit(DSLFuncEvaluator):
     # Example: more_traits_than_traits_in_unit(unit(neighbor,17),criminal,innocent)
     # Hint: #NAME:17 has more criminal than innocent neighbors
     def __init__(self, unit: Unit, trait_1: Trait, trait_2: Trait):
@@ -445,8 +577,11 @@ class MoreTraitsThanTraitsInUnit:
     def hint_text(self) -> str:
         return f"{self.unit.hint_text()} has more {self.trait_1.value} than {self.trait_2.value} {self.unit.unit_type.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class NProfessionsHaveTraitInDir:
+
+class NProfessionsHaveTraitInDir(DSLFuncEvaluator):
     # Example: n_professions_have_trait_in_dir(singer,criminal,0,-1,0)
     # Hint: No #PROF:singer has a criminal directly above them
     def __init__(self, profession: Profession, trait: Trait, dx: int, dy: int, n: int):
@@ -477,8 +612,11 @@ class NProfessionsHaveTraitInDir:
         else:
             return f"at ({dx},{dy}) from"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class NumberOfTraits:
+
+class NumberOfTraits(DSLFuncEvaluator):
     # Example: number_of_traits(criminal,16)
     # Hint: There are 16 criminals in total
     def __init__(self, trait: Trait, count: int):
@@ -488,8 +626,11 @@ class NumberOfTraits:
     def hint_text(self) -> str:
         return f"There are {self.count} {self.trait.hint_text()} in total"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class NumberOfTraitsInUnit:
+
+class NumberOfTraitsInUnit(DSLFuncEvaluator):
     # Example: number_of_traits_in_unit(unit(between,pair(1,5)),innocent,1)
     # Hint: "There is only one innocent #BETWEEN:pair(1,5)"
     def __init__(self, unit: Unit, trait: Trait, count: int):
@@ -503,8 +644,11 @@ class NumberOfTraitsInUnit:
         else:
             return f"There are {self.count} {self.trait.hint_text()} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class OddNumberOfTraitsInUnit:
+
+class OddNumberOfTraitsInUnit(DSLFuncEvaluator):
     # Example: odd_number_of_traits_in_unit(unit(profession,guard),innocent)
     # Hint: There's an odd number of innocent #PROFS:guard
     def __init__(self, unit: Unit, trait: Trait):
@@ -514,8 +658,11 @@ class OddNumberOfTraitsInUnit:
     def hint_text(self) -> str:
         return f"There's an odd number of {self.trait.value} {self.unit.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class OnlyOneUnitHasExactlyNTraits:
+
+class OnlyOneUnitHasExactlyNTraits(DSLFuncEvaluator):
     # Example: only_one_unit_has_exactly_n_traits(col,innocent,1)
     # Hint: Only one column has exactly 1 innocent
     def __init__(self, unit_type: UnitType, trait: Trait, n: int):
@@ -526,8 +673,11 @@ class OnlyOneUnitHasExactlyNTraits:
     def hint_text(self) -> str:
         return f"Only one {self.unit_type.hint_text()} has exactly {self.n} {self.trait.value if self.n == 1 else self.trait.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class OnlyTraitInUnitIsInUnit:
+
+class OnlyTraitInUnitIsInUnit(DSLFuncEvaluator):
     # Example: only_trait_in_unit_is_in_unit(unit(between,pair(0,2)),unit(between,pair(1,3)),innocent)
     # Hint: "The only innocent #BETWEEN:pair(0,2) is #BETWEEN:pair(1,3)"
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait):
@@ -538,8 +688,11 @@ class OnlyTraitInUnitIsInUnit:
     def hint_text(self) -> str:
         return f"The only {self.trait.value} {self.unit_1.hint_text()} is {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class OnlyUnitHasExactlyNTraits:
+
+class OnlyUnitHasExactlyNTraits(DSLFuncEvaluator):
     # Example: only_unit_has_exactly_n_traits(unit(neighbor,19),innocent,1)
     # Hint: #NAME:19 is the only one with only 1 innocent neighbor
     def __init__(self, unit: Unit, trait: Trait, n: int):
@@ -550,8 +703,11 @@ class OnlyUnitHasExactlyNTraits:
     def hint_text(self) -> str:
         return f"{self.unit.hint_text()} is the only one with only {self.n} {self.trait.value} {self.unit.unit_type.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class TotalNumberOfTraitsInUnits:
+
+class TotalNumberOfTraitsInUnits(DSLFuncEvaluator):
     # Example: total_number_of_traits_in_units(unit(neighbor,11),unit(neighbor,16),innocent,4)
     # Hint: #NAME:11 and #NAME:16 have 4 innocent neighbors in total
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait, total: int):
@@ -563,8 +719,11 @@ class TotalNumberOfTraitsInUnits:
     def hint_text(self) -> str:
         return f"{self.unit_1.hint_text()} and {self.unit_2.hint_text()} have {self.total} {self.trait.value} {self.unit_1.unit_type.hint_text()} in total"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class UnitSharesNOutOfNTraitsWithUnit:
+
+class UnitSharesNOutOfNTraitsWithUnit(DSLFuncEvaluator):
     # Example: unit_shares_n_out_of_n_traits_with_unit(unit(edge,void),unit(neighbor,2),criminal,1,10)
     # Hint: Only 1 of the 10 criminals on the edges is #NAMES:2 neighbor
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait, n: int, total: int):
@@ -577,8 +736,11 @@ class UnitSharesNOutOfNTraitsWithUnit:
     def hint_text(self) -> str:
         return f"Only {self.n} of the {self.total} {self.trait.hint_text()} {self.unit_1.hint_text()} is {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class UnitsShareNTraits:
+
+class UnitsShareNTraits(DSLFuncEvaluator):
     # Example: units_share_n_traits(unit(between,pair(2,14)),unit(neighbor,13),innocent,0)
     # Hint: "There are no innocents #BETWEEN:pair(2,14) who neighbor #NAME:13"
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait, n: int):
@@ -593,8 +755,11 @@ class UnitsShareNTraits:
         else:
             return f"There are {self.n} {self.trait.hint_text()} {self.unit_1.hint_text()} who are {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-class UnitsShareOddNTraits:
+
+class UnitsShareOddNTraits(DSLFuncEvaluator):
     # Example: units_share_odd_n_traits(unit(edge,void),unit(neighbor,7),innocent)
     # Hint: An odd number of innocents on the edges neighbor #NAME:7
     def __init__(self, unit_1: Unit, unit_2: Unit, trait: Trait):
@@ -605,16 +770,65 @@ class UnitsShareOddNTraits:
     def hint_text(self) -> str:
         return f"An odd number of {self.trait.hint_text()} {self.unit_1.hint_text()} are {self.unit_2.hint_text()}"
 
+    def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
+        pass
 
-@dataclasses.dataclass(frozen=True)
-class DSLEvalResult:
-    constraint: SortRef
-    hint_text: str
 
 
 class DSLContraintAdapter:
     def __init__(self, dimens: tuple[int, int]):
         self.rows, self.cols = dimens
         self.dsl_to_class_map = {
-            # Claude fill in
+            # Example: all_traits_are_neighbors_in_unit(unit(between,pair(0,16)),criminal)
+            "all_traits_are_neighbors_in_unit": AllTraitsAreNeighborsInUnit,
+            # Example: all_units_have_at_least_n_traits(row,innocent,2)
+            "all_units_have_at_least_n_traits": AllUnitsHaveAtLeastNTraits,
+            # Example: both_traits_are_neighbors_in_unit(unit(between,pair(3,15)),innocent)
+            "both_traits_are_neighbors_in_unit": BothTraitsAreNeighborsInUnit,
+            # Example: both_traits_in_unit_are_in_unit(unit(col,3),unit(neighbor,11),innocent)
+            "both_traits_in_unit_are_in_unit": BothTraitsInUnitAreInUnit,
+            # Example: equal_number_of_traits_in_units(unit(neighbor,0),unit(neighbor,7),innocent)
+            "equal_number_of_traits_in_units": EqualNumberOfTraitsInUnits,
+            # Example: equal_traits_and_traits_in_unit(unit(between,pair(15,19)),criminal,innocent)
+            "equal_traits_and_traits_in_unit": EqualTraitsAndTraitsInUnit,
+            # Example: every_profession_has_a_trait_in_dir(guard,criminal,-1,0)
+            "every_profession_has_a_trait_in_dir": EveryProfessionHasATraitInDir,
+            # Example: has_most_traits(unit(col,4),innocent)
+            "has_most_traits": HasMostTraits,
+            # Example: has_trait(19,innocent)
+            "has_trait": HasTrait,
+            # Example: is_not_only_trait_in_unit(unit(between,pair(5,7)),5,criminal)
+            "is_not_only_trait_in_unit": IsNotOnlyTraitInUnit,
+            # Example: is_one_of_n_traits_in_unit(unit(neighbor,6),5,criminal,5)
+            "is_one_of_n_traits_in_unit": IsOneOfNTraitsInUnit,
+            # Example: min_number_of_traits_in_unit(unit(edge,void),criminal,7)
+            "min_number_of_traits_in_unit": MinNumberOfTraitsInUnit,
+            # Example: more_traits_in_unit_than_unit(unit(neighbor,2),unit(neighbor,19),innocent)
+            "more_traits_in_unit_than_unit": MoreTraitsInUnitThanUnit,
+            # Example: more_traits_than_traits_in_unit(unit(neighbor,17),criminal,innocent)
+            "more_traits_than_traits_in_unit": MoreTraitsThanTraitsInUnit,
+            # Example: n_professions_have_trait_in_dir(singer,criminal,0,-1,0)
+            "n_professions_have_trait_in_dir": NProfessionsHaveTraitInDir,
+            # Example: number_of_traits(criminal,16)
+            "number_of_traits": NumberOfTraits,
+            # Example: number_of_traits_in_unit(unit(between,pair(1,5)),innocent,1)
+            "number_of_traits_in_unit": NumberOfTraitsInUnit,
+            # Example: odd_number_of_traits_in_unit(unit(profession,guard),innocent)
+            "odd_number_of_traits_in_unit": OddNumberOfTraitsInUnit,
+            # Example: only_one_unit_has_exactly_n_traits(col,innocent,1)
+            "only_one_unit_has_exactly_n_traits": OnlyOneUnitHasExactlyNTraits,
+            # Example: only_trait_in_unit_is_in_unit(unit(between,pair(0,2)),unit(between,pair(1,3)),innocent)
+            "only_trait_in_unit_is_in_unit": OnlyTraitInUnitIsInUnit,
+            # Example: only_unit_has_exactly_n_traits(unit(neighbor,19),innocent,1)
+            "only_unit_has_exactly_n_traits": OnlyUnitHasExactlyNTraits,
+            # Example: total_number_of_traits_in_units(unit(neighbor,11),unit(neighbor,16),innocent,4)
+            "total_number_of_traits_in_units": TotalNumberOfTraitsInUnits,
+            # Example: unit_shares_n_out_of_n_traits_with_unit(unit(edge,void),unit(neighbor,2),criminal,1,10)
+            "unit_shares_n_out_of_n_traits_with_unit": UnitSharesNOutOfNTraitsWithUnit,
+            # Example: units_share_n_traits(unit(between,pair(2,14)),unit(neighbor,13),innocent,0)
+            "units_share_n_traits": UnitsShareNTraits,
+            # Example: units_share_odd_n_traits(unit(edge,void),unit(neighbor,7),innocent)
+            "units_share_odd_n_traits": UnitsShareOddNTraits,
+            "unit": Unit,
+            "pair": Pair,
         }

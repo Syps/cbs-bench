@@ -21,17 +21,12 @@ from queue import Queue
 
 
 
-def is_solvable(puzzle_state: PuzzleState) -> bool:
-    solver = Solver()
-    for row in puzzle_state:
-        for cell in row:
-            constraint = cell_to_constraint(cell, puzzle_state)
-            solver.add(constraint)
-    soln = solver.check()
-    return soln == sat
 
-
-def cell_to_constraint(cell: PuzzleCell, state: PuzzleState) -> SortRef:
+def cell_to_constraint(
+        cell: PuzzleCell,
+        state: PuzzleState,
+        constraint_grid: list[list[BoolRef]]
+) -> SortRef:
     """
     - one clue might contain more than 1 constraint
         - Ex: "Both innocents in column D are connected".
@@ -165,7 +160,7 @@ class PuzzleValidator:
         while not queue.empty() or has_new_clue:
             has_new_clue = False
             cell = queue.get()
-            constraint = cell_to_constraint(cell, self.puzzle_state)
+            constraint = cell_to_constraint(cell, self.puzzle_state, self.constraint_grid)
             self.solver.add(constraint)
 
             if self.solver.check() != sat:
