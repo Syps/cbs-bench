@@ -2,7 +2,7 @@ import dataclasses
 import math
 from models import PuzzleState, Status, PuzzleCell
 import hint_dsl_functions
-from enum import Enum
+from hint_dsl_functions import DSLContraintAdapter, DSLEvalResult
 import ast
 from z3 import (
     Int,
@@ -17,26 +17,23 @@ from z3 import (
 from queue import Queue
 
 
-# DSL Enum Classes
+@dataclasses.dataclass
+class PuzzleValidationResult:
+    valid: bool
+    invalid_message: str | None = None
 
+adapter = DSLContraintAdapter()
 
-
-
-def cell_to_constraint(
+def eval_cell_hint_dsl(
         cell: PuzzleCell,
         state: PuzzleState,
         constraint_grid: list[list[BoolRef]]
-) -> SortRef:
-    """
-    - one clue might contain more than 1 constraint
-        - Ex: "Both innocents in column D are connected".
-    """
+) -> DSLEvalResult:
     orig_hint = cell.orig_hint
-    raw_clue = cell.clue
     _ast = ast.parse(orig_hint)
-    constraint = eval_expr(next(ast.walk(_ast)))
+    result = eval_expr(next(ast.walk(_ast)), state, constraint_grid)
 
-    return constraint
+    return result
 
 
 """
@@ -62,57 +59,6 @@ Raw Form
 """
 
 
-"""
-Steps
------
-
-1. Model generates puzzle JSON
-2. JSON -> PuzzleState (or throw error)
-3. Init constraint grid
-4. Init Solver
-5. For each puzzle cell in puzzle state:
-    - orig_hint -> list[constraint]
-    - add constraints via solver.add(constraint)
-    - check if satisfiable
-6. Check if solvable
-7. Print result
-    
-"""
-
-
-"""
-Questions
----------
-
-- How do we know that the generated orig_hint correctly maps to the hint?
-- If the hint is what the human/competitor sees, then we need to make sure it's accurate.
-
-
-Ways to parse a regular hint
-- LLM text-to-JSON (take string, give back JSON repr)
-- LLM text-to-DSL (take string, give back DSL expr)
-    - would need to do an evaluation of this to check accuracy
-- regex (check for keywords like "both", "between", "neighbors")
-- have LLM generate DSL, use LLM to generate hint from DSL
-    - can we use regex to make sure generated text matches?
-    - can we generate text ourselves?
-        - Yes, I think so...
-        - LLM generates DSL expression
-        - We parse the expression
-        - We validate it (is it a real function name, are the args being passed correct per the func signature, etc)
-        - We construct an object that represents it (e.g AllTraitsAreNeighborsInUnit, etc)
-        - All expression objects have a plain_english() method which return the "hint" representation of the DSL expr
-        - That's the hint we use in the final puzzle
-        
-        TODO:
-        -----
-        - unit tests for all hint_text methods
-"""
-
-@dataclasses.dataclass
-class PuzzleValidationResult:
-    valid: bool
-    invalid_message: str | None = None
 
 
 
@@ -160,8 +106,8 @@ class PuzzleValidator:
         while not queue.empty() or has_new_clue:
             has_new_clue = False
             cell = queue.get()
-            constraint = cell_to_constraint(cell, self.puzzle_state, self.constraint_grid)
-            self.solver.add(constraint)
+            result = eval_cell_hint_dsl(cell, self.puzzle_state, self.constraint_grid)
+            self.solver.add(result.constraint)
 
             if self.solver.check() != sat:
                 message = "\n  - ".join([str(c) for c in self.solver.unsat_core()])
@@ -194,63 +140,20 @@ class PuzzleValidator:
         return PuzzleValidationResult(valid=True)
 
 
-
-
-
-
-
-
-
-
-
-
-        for cell in ordered:
-            constraint = cell_to_constraint(cell, self.puzzle_state)
-            self.solver.add(constraint)
-            if self.solver.check() != sat:
-                raise ValueError("Unsatsifiable")
-
-            model = self.solver.model()
-
-
-    def add_constraints_for_hints(self) -> None:
-        for row in self.puzzle_state:
-            for cell in row:
-                constraint = cell_to_constraint(cell, self.puzzle_state)
-                self.solver.add(constraint)
-
-
-
-
-
-class ConstraintChecker:
-    def __init__(self, ref_array: list[list[BoolRef]]):
-        self.ref_array = ref_array
-
-
-    def add(self, orig_hint: str):
-        pass
-
-    def update_refs(self, x: list[int]):
-        pass
-
-
-
-def eval_expr(expr):
+def eval_expr(expr, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
     if isinstance(expr, ast.Constant):
         return expr.value
     elif isinstance(expr, ast.Name):
         return str(expr.id)
     elif isinstance(expr, ast.Expr):
-        return expr.value
+        return eval_expr(expr.value, puzzle_state, constraint_grid)
     elif isinstance(expr, ast.Call):
-        func_name = expr.func.id
-        func = getattr(hint_dsl_functions, func_name)
-        args = [eval_expr(arg) for arg in expr.args]
-        return func(*args)
+        clazz = adapter.from_string(expr.func.id)
+        args = [eval_expr(arg, puzzle_state, constraint_grid) for arg in expr.args]
+        return clazz(*args).eval(puzzle_state, constraint_grid)
     elif isinstance(expr, ast.Module):
         # just return the first thing since our module is always just a single expression
-        return [e for e in ast.walk(expr)][0]
+        return eval_expr(expr.body[0], puzzle_state, constraint_grid)
     else:
         raise TypeError(f"Unexpected type {type(expr)}")
 

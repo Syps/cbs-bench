@@ -236,7 +236,7 @@ class TestAllTraitsAreNeighborsInUnit:
         assert actual_constraint.eq(expected_constraint)
         assert result.hint_text == "All innocents above David are connected"
 
-    def test_all_criminals_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+    def test_all_criminals_to_left_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all criminals in a horizontal unit (row) are connected"""
         # Pair(4, 6) is row 1, cols 0-2 (indices 4, 5, 6)
         unit = Unit(UnitType.BETWEEN, Pair(4, 6))
@@ -258,7 +258,7 @@ class TestAllTraitsAreNeighborsInUnit:
         assert actual_constraint.eq(expected_constraint)
         assert result.hint_text == "All criminals to the left of Olivia are connected"
 
-    def test_all_innocents_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+    def test_all_innocents_to_left_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all innocents in a horizontal unit (row) are connected"""
         # Pair(0, 2) is row 0, cols 0-2 (indices 0, 1, 2)
         unit = Unit(UnitType.BETWEEN, Pair(0, 2))
@@ -279,8 +279,9 @@ class TestAllTraitsAreNeighborsInUnit:
         actual_constraint = result.constraint
 
         assert actual_constraint.eq(expected_constraint)
+        assert result.hint_text == "All innocents to the left of Jack are connected"
 
-    def test_all_criminals_to_left_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+    def test_all_criminals_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all criminals in a horizontal unit (row, reversed) are connected"""
         # Pair(14, 12) is row 3, cols 2-0 (indices 14, 13, 12) - reversed
         unit = Unit(UnitType.BETWEEN, Pair(14, 12))
@@ -301,7 +302,7 @@ class TestAllTraitsAreNeighborsInUnit:
 
         assert actual_constraint.eq(expected_constraint)
 
-    def test_all_innocents_to_left_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+    def test_all_innocents_to_right_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
         """Test all innocents in a horizontal unit (row, reversed) are connected"""
         unit = Unit(UnitType.BETWEEN, Pair(10, 8))
         const = AllTraitsAreNeighborsInUnit(unit, Trait.INNOCENT)

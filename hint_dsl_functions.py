@@ -26,6 +26,14 @@ from queue import Queue
 
 # DSL Enum Classes
 
+def number_to_string(value: int) -> str:
+    strings = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+     "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+     "seventeen", "eighteen", "nineteen"]
+
+    return strings[value-1]
+
+
 class Trait(Enum):
     """Represents whether a cell is criminal or innocent"""
     CRIMINAL = "criminal"
@@ -201,25 +209,25 @@ class Unit:
         )
 
     def cells(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> list[BoolRef]:
-        if self.unit_type == UnitType.BETWEEN:
+        if self.unit_type == UnitType.BETWEEN.value:
             return between(self.selector, puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.ROW:
+        if self.unit_type == UnitType.ROW.value:
             return row(self.selector, puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.COL:
+        if self.unit_type == UnitType.COL.value:
             return col(self.selector, puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.CORNER:
+        if self.unit_type == UnitType.CORNER.value:
             return corners(puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.EDGE:
+        if self.unit_type == UnitType.EDGE.value:
             return edges(puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.PROFESSION:
+        if self.unit_type == UnitType.PROFESSION.value:
             return profession_bools(self.selector, puzzle_state, constraint_grid)
 
-        if self.unit_type == UnitType.NEIGHBOR:
+        if self.unit_type == UnitType.NEIGHBOR.value:
             return neighbor_indexes(self.selector, puzzle_state, constraint_grid)
 
         raise ValueError(f"Unknown unit type: {self.unit_type}")
@@ -252,13 +260,13 @@ VOID = "void"
 
 
 def all_units(unit_type: UnitType, constraint_grid: list[list[BoolRef]]) -> list[Unit]:
-    if unit_type == UnitType.ROW:
+    if unit_type == UnitType.ROW.value:
         return [Unit(unit_type, i) for i in range(len(constraint_grid))]
 
-    if unit_type == UnitType.COL:
+    if unit_type == UnitType.COL.value:
         return [Unit(unit_type, i) for i in range(len(constraint_grid[0]))]
 
-    if unit_type == UnitType.NEIGHBOR:
+    if unit_type == UnitType.NEIGHBOR.value:
         units = []
         n_rows = len(constraint_grid)
         n_cols = len(constraint_grid[0])
@@ -339,14 +347,16 @@ class AllUnitsHaveAtLeastNTraits(DSLFuncEvaluator):
     # Hint: Each row has at least 2 innocents
     def __init__(self, unit_type: UnitType, trait: Trait, n: int):
         self.unit_type = unit_type
-        self.trait = trait
+        self.trait = Trait(trait)
         self.n = n
 
-    def hint_text(self) -> str:
+    def hint_text(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> str:
         if self.unit_type == "neighbor":
             return f"Everyone has at least {self.n} {self.trait.hint_text()} neighbors"
         else:
-            return f"Each {self.unit_type.hint_text()} has at least {self.n} {self.trait.hint_text()}"
+            if self.unit_type == UnitType.ROW.value:
+                unit_type_hint = None
+            return f"All {self.unit_type}s have at least {number_to_string(self.n)} {self.trait.hint_text()}"
 
     def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
         units = all_units(self.unit_type, constraint_grid)
@@ -366,7 +376,7 @@ class AllUnitsHaveAtLeastNTraits(DSLFuncEvaluator):
 
         return DSLEvalResult(
             constraint=constraint,
-            hint_text=self.hint_text(),
+            hint_text=self.hint_text(puzzle_state, constraint_grid),
         )
 
 
@@ -776,8 +786,7 @@ class UnitsShareOddNTraits(DSLFuncEvaluator):
 
 
 class DSLContraintAdapter:
-    def __init__(self, dimens: tuple[int, int]):
-        self.rows, self.cols = dimens
+    def __init__(self):
         self.dsl_to_class_map = {
             # Example: all_traits_are_neighbors_in_unit(unit(between,pair(0,16)),criminal)
             "all_traits_are_neighbors_in_unit": AllTraitsAreNeighborsInUnit,
@@ -832,3 +841,9 @@ class DSLContraintAdapter:
             "unit": Unit,
             "pair": Pair,
         }
+
+    def from_string(self, value: str):
+        if value not in self.dsl_to_class_map:
+            raise KeyError(f"String value passed, `{value}` was not found in DSL map")
+
+        return self.dsl_to_class_map[value]
