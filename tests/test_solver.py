@@ -1,6 +1,6 @@
 import pytest
 from z3 import *
-from hint_dsl_functions import (
+from ..hint_dsl_functions import (
     Profession,
     Pair,
     between,
@@ -16,16 +16,8 @@ from hint_dsl_functions import (
     Unit,
     Trait,
 )
-from hint_dsl_functions import UnitType
-from solver import eval_cell_hint_dsl
-from models import PuzzleCell, Status
-
-from fixtures import (
-    simple_3x3_puzzle_state,
-    simple_3x3_constraint_grid,
-    simple_4x5_puzzle_state,
-    simple_4x5_constraint_grid,
-)
+from ..hint_dsl_functions import UnitType
+from ..solver import eval_cell_hint_dsl
 
 
 class TestEvalCellHintDSL:

@@ -310,6 +310,18 @@ def fetch():
         raise
 
 @click.command()
+@click.argument("model", type=click.Choice(AVAILABLE_MODELS), help="The model to generate the puzzle with")
+@click.argument("json_path", type=click.Path(exists=True))
+@click.option("--rows", "-r", type=int, default=3, help="Number of rows in puzzle grid")
+@click.option("--cols", "-c", type=int, default=3, help="Number of columns in puzzle grid")
+def generate(rows, cols):
+    """Generate a solvable puzzle and save to a dated JSON file."""
+    # 1. Generate
+    # 2. Validate
+    # 3. Cache
+    pass
+
+@click.command()
 @click.option('--model', type=click.Choice(AVAILABLE_MODELS), help='Name of the model to test')
 @click.option('--puzzle', type=str, help='Puzzle to test on (YYYYMMDD date or URL, defaults to today)')
 @click.option('--serialization',
@@ -894,6 +906,7 @@ cli.add_command(fetch)
 cli.add_command(test)
 cli.add_command(stats)
 cli.add_command(replay)
+cli.add_command(generate)
 
 if __name__ == "__main__":
     cli()

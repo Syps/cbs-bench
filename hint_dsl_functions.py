@@ -11,6 +11,7 @@ from z3 import (
     Int,
     Bool,
     Not,
+    Or,
     SortRef,
     Sum,
     And,
@@ -397,9 +398,7 @@ class BothTraitsAreNeighborsInUnit(DSLFuncEvaluator):
     def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
         cells = self.unit.cells(puzzle_state, constraint_grid)
         is_criminal = self.trait == Trait.CRIMINAL
-        or_constraints = [
-
-        ]
+        or_constraints = []
         # iterate over cells with a window of 2
         for c1, c2 in zip(cells, cells[1:]):
             or_constraints.append(And(
@@ -407,7 +406,11 @@ class BothTraitsAreNeighborsInUnit(DSLFuncEvaluator):
                 c2 == is_criminal
             ))
 
-        return And(Sum([c == is_criminal for c in cells]) == 2, or_constraints)
+        constraint = And(Sum([c == is_criminal for c in cells]) == 2, Or(or_constraints))
+        return DSLEvalResult(
+            constraint=constraint,
+            hint_text=self.hint_text()
+        )
 
 
 
