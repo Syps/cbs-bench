@@ -16,13 +16,13 @@ from datetime import datetime
 from z3 import Bool, BoolRef, Solver, sat, Sum, If, ExprRef
 
 # Import from other modules
-from fetch import (
+from .fetch import (
     fetch_clues_from_website,
     load_puzzle_from_cache,
     fetch_and_cache_puzzle
 )
-from models import CellData, PuzzleCell, TestResult, PuzzleDifficulty, PUZZLE_PACK_1_DIFFICULTIES
-from eval import (
+from .models import CellData, PuzzleCell, TestResult, PuzzleDifficulty, PUZZLE_PACK_1_DIFFICULTIES
+from .solve import (
     AVAILABLE_MODELS,
     ModelFactory,
     ModelTester,

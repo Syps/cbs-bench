@@ -1,8 +1,8 @@
 import dataclasses
 import math
-from models import PuzzleState, Status, PuzzleCell
-import hint_dsl_functions
-from hint_dsl_functions import DSLContraintAdapter, DSLEvalResult
+from cbs_bench.models import PuzzleState, Status, PuzzleCell
+from . import hint_dsl_functions
+from .hint_dsl_functions import DSLContraintAdapter, DSLEvalResult
 import ast
 from z3 import (
     Int,

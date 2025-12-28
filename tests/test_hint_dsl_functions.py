@@ -1,6 +1,6 @@
 import pytest
 from z3 import *
-from ..hint_dsl_functions import (
+from cbs_bench.generate.hint_dsl_functions import (
     Profession,
     Pair,
     between,
@@ -40,7 +40,7 @@ from ..hint_dsl_functions import (
     Unit,
     Trait,
 )
-from ..hint_dsl_functions import UnitType
+from cbs_bench.generate.hint_dsl_functions import UnitType
 
 
 class TestRowHelper:

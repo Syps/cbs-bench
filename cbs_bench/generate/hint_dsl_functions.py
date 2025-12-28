@@ -3,7 +3,7 @@ import dataclasses
 import math
 import pdb
 
-from models import PuzzleState, Status, PuzzleCell
+from cbs_bench.models import PuzzleState, Status, PuzzleCell
 from enum import Enum
 from abc import ABC, abstractmethod
 import ast

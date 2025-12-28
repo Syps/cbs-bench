@@ -35,6 +35,17 @@ class PuzzleCell(BaseModel):
     paths: List[List[int]] = []
     is_criminal: bool = False
 
+class GeneratedPuzzleCell(BaseModel):
+    name: str
+    profession: str
+    gender: str
+    hint_dsl: str
+    is_criminal: bool
+    paths: list[list[int]]
+
+class GeneratedPuzzle(BaseModel):
+    cells: list[GeneratedPuzzleCell]
+
 type PuzzleState = List[List[PuzzleCell]]
 
 

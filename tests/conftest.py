@@ -3,7 +3,7 @@ from z3 import (
     BoolRef,
     Bool,
 )
-from models import PuzzleCell, Status
+from cbs_bench.models import PuzzleCell, Status
 
 
 """
