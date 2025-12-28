@@ -29,7 +29,7 @@ from .models import (
     ModelCommunicationError,
     GameStateError
 )
-from .prompts import SOLVER_SYSTEM_PROMPT
+from cbs_bench.prompts import SOLVE_PUZZLE_SYSTEM_PROMPT
 
 
 # Grid dimensions
@@ -690,7 +690,7 @@ def is_puzzle_complete(current_state: List[List[PuzzleCell]]) -> bool:
 
 
 def get_system_prompt() -> str:
-    return SOLVER_SYSTEM_PROMPT
+    return SOLVE_PUZZLE_SYSTEM_PROMPT
 
 
 def get_test_results_dir(puzzle_identifier: str, model_name: str) -> str:
