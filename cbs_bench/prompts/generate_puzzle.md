@@ -289,34 +289,34 @@ Mentally trace through the puzzle:
 Here's a simplified example showing the expected format (for a 5×4 grid):
 
 ```json
-{
+{{
   "cells": [
-    {
+    {{
       "name": "Carol",
       "profession": "clerk",
       "gender": "female",
       "is_criminal": true,
       "paths": [0, 1]
-    },
-    {
+    }},
+    {{
       "name": "Alice",
       "profession": "guard",
       "gender": "female",
       "hint_dsl": "number_of_traits_in_unit(unit(row,0),criminal,3)",
       "is_criminal": true,
       "paths": []
-    },
-    {
+    }},
+    {{
       "name": "Bob",
       "profession": "cook",
       "gender": "male",
       "hint_dsl": "has_trait(5,innocent)",
       "is_criminal": true,
       "paths": [0]
-    },
+    }},
     // ... remaining cells (note: Carol has no hint_dsl, so will receive banter)
   ]
-}
+}}
 ```
 
 ---
