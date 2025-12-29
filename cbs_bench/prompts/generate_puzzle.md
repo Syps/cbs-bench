@@ -4,10 +4,13 @@ You are a puzzle generator for the logic deduction game "Clues By Sam". Your tas
 
 ## GAME OVERVIEW
 
-The game consists of a 5×4 grid (20 cells) where each cell represents a person who is either **criminal** or **innocent**. Players reveal clues by correctly identifying each person's status, using logic to deduce the remaining unknowns.
+The game consists of a grid of arbitrary dimensions (rows × columns) where each cell represents a person who is either **criminal** or **innocent**. Players reveal clues by correctly identifying each person's status, using logic to deduce the remaining unknowns.
 
-### Grid Layout (5 rows × 4 columns)
+### Grid Layout
 
+Cell indices are assigned left-to-right, top-to-bottom starting at 0.
+
+Example for a 5×4 grid (5 rows, 4 columns):
 ```
      Col0  Col1  Col2  Col3
 Row0:  0     1     2     3
@@ -17,12 +20,14 @@ Row3: 12    13    14    15
 Row4: 16    17    18    19
 ```
 
-Cell index formula: `index = row * 4 + col`
+Cell index formula: `index = row * num_columns + col`
 
-### Key Positions
-- **Corners**: 0, 3, 16, 19
-- **Edges**: All cells on the perimeter (14 cells total)
-- **Center region**: 5, 6, 9, 10
+### Key Positions (vary by grid size)
+- **Corners**: The 4 corner cells of the grid
+- **Edges**: All cells on the perimeter
+- **Center region**: Interior cells not on the perimeter
+
+The specific grid dimensions for your puzzle will be provided at the end of this prompt.
 
 ---
 
@@ -46,19 +51,21 @@ class GeneratedPuzzleCell(BaseModel):
     name: str           # Unique person name
     profession: str     # One of the valid professions
     gender: str         # "male" or "female"
-    hint_dsl: str       # Valid DSL constraint string
+    hint_dsl: str      # Valid DSL constraint string (OMIT this field entirely for cells with no logical hint (i.e "banter"))
     is_criminal: bool   # True = criminal, False = innocent
     paths: list[int]    # Cell indices that must be solved before this cell
 
 class GeneratedPuzzle(BaseModel):
-    cells: list[GeneratedPuzzleCell]  # Exactly 20 cells, indexed 0-19
+    cells: list[GeneratedPuzzleCell]  # One cell per grid position, indexed 0 to (rows*cols - 1)
 ```
+
+**Note**: If a cell should not have a logical hint (i.e., it will receive "banter" text generated elsewhere), simply omit the `hint_dsl` field entirely for that cell.
 
 ---
 
 ## DSL REFERENCE
 
-The `hint_dsl` field must contain a valid DSL expression. Below is the complete specification.
+The `hint_dsl` field must contain a valid DSL expression (or be omitted entirely for banter cells). Below is the complete specification.
 
 ### Valid Professions
 `builder`, `clerk`, `coder`, `cook`, `cop`, `doctor`, `farmer`, `guard`, `judge`, `mech`, `painter`, `pilot`, `singer`, `sleuth`, `teacher`
@@ -221,10 +228,10 @@ The puzzle MUST be completely solvable through pure deduction. This means:
 
 ### 2. Solution Path Design
 The `paths` field indicates which cells must be solved BEFORE the current cell can provide useful information. Design these carefully:
-- **Entry points**: At least 2-3 cells should have `paths: []` (solvable immediately)
+- **Single entry point**: Exactly ONE cell should have `paths: []` (solvable immediately). This is the starting point for the entire puzzle.
 - **Cascading clues**: Later cells should depend on earlier revelations
 - **No circular dependencies**: If A depends on B, B cannot depend on A
-- **Complete coverage**: Every cell must eventually be reachable
+- **Complete coverage**: Every cell must eventually be reachable from the entry point
 
 ### 3. DSL Validity
 Every `hint_dsl` must be:
@@ -241,13 +248,7 @@ Use a diverse mix of DSL functions:
 - Some connectivity hints (`all_traits_are_neighbors_in_unit`)
 - Some profession-based hints (`every_profession_has_a_trait_in_dir`)
 
-### 5. Banter Hints
-Not every cell needs a logically useful hint. Some cells can have "banter" - hints that are true but not helpful for deduction. These should still be valid DSL. Good banter examples:
-- Hints that state obvious facts
-- Hints about already-solved information
-- Hints that are true but too vague to help
-
-### 6. Name and Profession Diversity
+### 5. Name and Profession Diversity
 - Use unique names for all 20 cells
 - Distribute professions reasonably (can repeat, but vary)
 - Mix genders appropriately
@@ -258,25 +259,21 @@ Not every cell needs a logically useful hint. Some cells can have "banter" - hin
 ## PUZZLE DESIGN STRATEGY
 
 ### Step 1: Design the Solution
-First, decide which cells are criminal vs innocent. Aim for approximately 8-12 criminals (40-60% of grid).
+First, decide which cells are criminal vs innocent. Aim for a fairly even split between criminals and innocents.
 
-### Step 2: Identify Entry Points
-Choose 2-4 cells that can be immediately determined. Their hints should be powerful enough to solve without any other information:
-- `has_trait(cell_id, trait)` - Direct revelation
-- `number_of_traits_in_unit(unit, trait, 0)` or similar extremes
-- `all_units_have_at_least_n_traits` combined with visible constraints
+### Step 2: Identify the Entry Point
+Choose exactly ONE cell that can be immediately determined. Its hint should be powerful enough to solve without any other information
 
 ### Step 3: Build Dependency Chains
-Work outward from entry points:
+Work outward from the entry point:
 - What new information does revealing cell X provide?
 - Which cells become solvable with that information?
-- Build logical chains of 3-5 steps deep
+- Build logical chains that eventually cover all cells
 
 ### Step 4: Fill in Supporting Hints
 Add hints that:
 - Confirm deductions (building confidence)
 - Provide alternative solution paths (redundancy)
-- Add flavor without being essential
 
 ### Step 5: Verify Solvability
 Mentally trace through the puzzle:
@@ -289,11 +286,18 @@ Mentally trace through the puzzle:
 
 ## EXAMPLE PUZZLE STRUCTURE
 
-Here's a simplified example showing the expected format:
+Here's a simplified example showing the expected format (for a 5×4 grid):
 
 ```json
 {
   "cells": [
+    {
+      "name": "Carol",
+      "profession": "clerk",
+      "gender": "female",
+      "is_criminal": true,
+      "paths": [0, 1]
+    },
     {
       "name": "Alice",
       "profession": "guard",
@@ -310,7 +314,7 @@ Here's a simplified example showing the expected format:
       "is_criminal": true,
       "paths": [0]
     },
-    // ... cells 2-19
+    // ... remaining cells (note: Carol has no hint_dsl, so will receive banter)
   ]
 }
 ```
@@ -319,9 +323,9 @@ Here's a simplified example showing the expected format:
 
 ## COMMON MISTAKES TO AVOID
 
-1. **Invalid pairs**: `pair(0,5)` is INVALID (not same row/col). Use `pair(0,4)` for column or `pair(0,3)` for row.
+1. **Invalid pairs**: `pair(0,5)` is INVALID if cells 0 and 5 are not in the same row or column. Pairs must connect cells in the same row OR same column.
 
-2. **Unsolvable puzzles**: Every cell must be reachable through logical deduction. Don't create islands of cells that can never be determined.
+2. **Unsolvable puzzles**: Every cell must be reachable through logical deduction from the single entry point. Don't create islands of cells that can never be determined.
 
 3. **Contradictory hints**: Ensure all hints are simultaneously satisfiable by your solution.
 
@@ -333,9 +337,11 @@ Here's a simplified example showing the expected format:
 
 6. **Circular dependencies**: Cell 5 requires cell 8, cell 8 requires cell 5 → unsolvable
 
-7. **No entry points**: At least some cells must be solvable with zero prior information
+7. **Multiple or no entry points**: There must be EXACTLY ONE cell with `paths: []`
 
-8. **Overuse of banter**: Most hints should contribute to solvability
+8. **Cell indices out of bounds**: Ensure all cell references are valid for the given grid dimensions (0 to rows×cols - 1)
+
+9. **Wrong dimensons**: The returned array length must be equal to the provided rows * cols
 
 ---
 
@@ -343,23 +349,25 @@ Here's a simplified example showing the expected format:
 
 **Easy puzzles**:
 - More direct `has_trait` hints
-- Shorter dependency chains (1-2 steps)
+- Shorter dependency chains
 - Higher redundancy in clues
-- 3-4 entry points
 
 **Medium puzzles**:
 - Mix of direct and indirect hints
-- Chains of 2-4 steps
+- Medium-length dependency chains
 - Some redundancy
-- 2-3 entry points
 
 **Hard puzzles**:
 - Few direct hints
-- Long dependency chains (4-6 steps)
+- Long dependency chains
 - Minimal redundancy
-- 1-2 entry points
 - More complex DSL functions (comparisons, connectivity)
 
 ---
 
-Now generate a complete, valid, solvable puzzle following all requirements above.
+## INSTRUCTIONS
+Rows: {rows}
+Columns: {columns}
+Expected cell array length: {expected_arr_length}
+
+Generate a puzzle with exactly {expected_arr_length} cells (rows x columns), indexed from 0 to {last_index}.
