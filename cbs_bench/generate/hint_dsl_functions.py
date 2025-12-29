@@ -200,6 +200,9 @@ class Unit:
         self.unit_type = unit_type
         self.selector = selector
 
+    def eval(self, *args, **kwargs):
+        return self
+
     def count_trait(self, trait: Trait, puzzle_state: PuzzleState) -> int:
         cells = self.cells(puzzle_state)
         trait_is_criminal = trait == Trait.CRIMINAL

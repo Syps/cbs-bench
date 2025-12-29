@@ -28,7 +28,7 @@ class PuzzleCell(BaseModel):
     name: str
     profession: str
     gender: str
-    orig_hint: str = ""  # only_trait_in_unit_is_in_unit(unit(between,pair(7,15)),unit(neighbor,6),innocent)
+    orig_hint: str | None = ""  # only_trait_in_unit_is_in_unit(unit(between,pair(7,15)),unit(neighbor,6),innocent)
     clue: str  # The only innocent #BETWEEN:pair(7,15) is #NAMES:6 neighbor
     status: Status = Status.UNKNOWN
     had_mistake: bool = False

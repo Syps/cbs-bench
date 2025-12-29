@@ -123,14 +123,16 @@ class PuzzleValidator:
                 puzzle_cell = self.puzzle_state[row][col]
 
                 if puzzle_cell.status == Status.UNKNOWN:
-                    has_new_clue = True
                     puzzle_cell.status = Status.INNOCENT if model_value else Status.CRIMINAL
-                    queue.put(puzzle_cell)
+                    if puzzle_cell.orig_hint is not None:
+                        has_new_clue = True
+                        queue.put(puzzle_cell)
 
                 elif (puzzle_cell.status == Status.CRIMINAL and not model_value) \
                     or (puzzle_cell.status == Status.INNOCENT and model_value):
                     raise ValueError("Shouldn't happen")
 
+        check = self.solver.check()
         if len(self.solver.model()) != math.prod(self.dimens):
             return PuzzleValidationResult(
                 valid=False,

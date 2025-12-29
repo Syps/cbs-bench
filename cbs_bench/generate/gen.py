@@ -27,6 +27,11 @@ def generated_to_puzzle_state(generated: GeneratedPuzzle, rows: int, cols: int) 
         if len(puzzle_state) - 1 != row:
             puzzle_state.append([])
 
+        status = Status.UNKNOWN
+
+        if len(generated_cell.paths) == 0:
+            status = Status.CRIMINAL if generated_cell.is_criminal else Status.INNOCENT
+
         puzzle_state[row].append(
             PuzzleCell(
                 name=generated_cell.name,
@@ -34,7 +39,7 @@ def generated_to_puzzle_state(generated: GeneratedPuzzle, rows: int, cols: int) 
                 gender=generated_cell.gender,
                 orig_hint=generated_cell.hint_dsl,
                 clue="",
-                status=Status.UNKNOWN,
+                status=status,
                 is_criminal=generated_cell.is_criminal,
                 paths=generated_cell.paths,
             )
@@ -66,7 +71,7 @@ def create_puzzle(*, rows: int, cols: int, model_name: str) -> PuzzleState:
     start = time.time()
     result = model.invoke(memory.messages)
     print(f"Done. Took {time.time() - start} seconds.")
-    pdb.set_trace()
+    # pdb.set_trace()
     puzzle_state = generated_to_puzzle_state(result, rows, cols)
 
     validator = PuzzleValidator(puzzle_state)
@@ -81,32 +86,32 @@ def create_puzzle(*, rows: int, cols: int, model_name: str) -> PuzzleState:
     return puzzle_state
 
 
-test_puzzle = GeneratedPuzzle(
-    cells=[
-        GeneratedPuzzleCell(name='Aaron', profession='guard', gender='male',
-                            hint_dsl='number_of_traits_in_unit(unit(row,0),criminal,2)',
-                            is_criminal=True, paths=[[4]]),
-        GeneratedPuzzleCell(name='Beth', profession='clerk', gender='female', hint_dsl='has_trait(5,innocent)',
-                            is_criminal=False, paths=[[]]),
-        GeneratedPuzzleCell(name='Carlos', profession='coder', gender='male', hint_dsl='has_trait(8,criminal)',
-                            is_criminal=True, paths=[[0, 1]]),
-        GeneratedPuzzleCell(name='Dana', profession='cop', gender='female',
-                            hint_dsl='number_of_traits_in_unit(unit(col,0),criminal,2)', is_criminal=True, paths=[[5]]),
-        GeneratedPuzzleCell(name='Ethan', profession='judge', gender='male', hint_dsl='has_trait(0,criminal)',
-                            is_criminal=True, paths=[[5]]),
-        GeneratedPuzzleCell(name='Fiona', profession='teacher', gender='female',
-                            hint_dsl='number_of_traits_in_unit(unit(row,1),criminal,2)', is_criminal=False,
-                            paths=[[1]]),
-        GeneratedPuzzleCell(name='Greg', profession='doctor', gender='male', hint_dsl='has_trait(7,innocent)',
-                            is_criminal=False, paths=[[3, 4]]),
-        GeneratedPuzzleCell(name='Hana', profession='builder', gender='female',
-                            hint_dsl='more_traits_in_unit_than_unit(unit(row,0),unit(row,2),criminal)',
-                            is_criminal=False, paths=[[6]]),
-        GeneratedPuzzleCell(name='Ivan', profession='pilot', gender='male',
-                            hint_dsl='both_traits_are_neighbors_in_unit(unit(row,2),innocent)', is_criminal=True,
-                            paths=[[2]])])
-
-pdb.set_trace()
-puzzle_state = generated_to_puzzle_state(test_puzzle, 3, 3)
-validator = PuzzleValidator(puzzle_state)
-validation_result = validator.validate()
+# test_puzzle = GeneratedPuzzle(
+#     cells=[
+#         GeneratedPuzzleCell(name='Aaron', profession='guard', gender='male',
+#                             hint_dsl='number_of_traits_in_unit(unit(row,0),criminal,2)',
+#                             is_criminal=True, paths=[[4]]),
+#         GeneratedPuzzleCell(name='Beth', profession='clerk', gender='female', hint_dsl='has_trait(5,innocent)',
+#                             is_criminal=False, paths=[[]]),
+#         GeneratedPuzzleCell(name='Carlos', profession='coder', gender='male', hint_dsl='has_trait(8,criminal)',
+#                             is_criminal=True, paths=[[0, 1]]),
+#         GeneratedPuzzleCell(name='Dana', profession='cop', gender='female',
+#                             hint_dsl='number_of_traits_in_unit(unit(col,0),criminal,2)', is_criminal=True, paths=[[5]]),
+#         GeneratedPuzzleCell(name='Ethan', profession='judge', gender='male', hint_dsl='has_trait(0,criminal)',
+#                             is_criminal=True, paths=[[5]]),
+#         GeneratedPuzzleCell(name='Fiona', profession='teacher', gender='female',
+#                             hint_dsl='number_of_traits_in_unit(unit(row,1),criminal,2)', is_criminal=False,
+#                             paths=[[1]]),
+#         GeneratedPuzzleCell(name='Greg', profession='doctor', gender='male', hint_dsl='has_trait(7,innocent)',
+#                             is_criminal=False, paths=[[3, 4]]),
+#         GeneratedPuzzleCell(name='Hana', profession='builder', gender='female',
+#                             hint_dsl='more_traits_in_unit_than_unit(unit(row,0),unit(row,2),criminal)',
+#                             is_criminal=False, paths=[[6]]),
+#         GeneratedPuzzleCell(name='Ivan', profession='pilot', gender='male',
+#                             hint_dsl='both_traits_are_neighbors_in_unit(unit(row,2),innocent)', is_criminal=True,
+#                             paths=[[2]])])
+#
+# pdb.set_trace()
+# puzzle_state = generated_to_puzzle_state(test_puzzle, 3, 3)
+# validator = PuzzleValidator(puzzle_state)
+# validation_result = validator.validate()
