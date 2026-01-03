@@ -10,6 +10,7 @@ import ast
 from z3 import (
     Int,
     Bool,
+    If,
     Not,
     Or,
     SortRef,
@@ -367,14 +368,11 @@ class AllUnitsHaveAtLeastNTraits(DSLFuncEvaluator):
         and_constraints = []
         for unit in units:
             cells = unit.cells(puzzle_state, constraint_grid)
-            if self.trait == Trait.CRIMINAL:
-                and_constraints.append(
-                    Sum([c for c in cells]) == self.n
-                )
-            else:
-                and_constraints.append(
-                    Sum([c for c in cells]) == len(cells) - self.n
-                )
+            true_point = int(self.trait == Trait.CRIMINAL)
+            false_point = int(self.trait == Trait.INNOCENT)
+            and_constraints.append(
+                Sum([If(c, true_point, false_point) for c in cells]) >= self.n
+            )
 
         constraint = And(and_constraints)
 

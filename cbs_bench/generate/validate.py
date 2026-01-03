@@ -9,9 +9,11 @@ from z3 import (
     Bool,
     solve,
     SortRef,
+FuncDeclRef,
     BoolRef,
     Solver,
     sat,
+    Not,
 )
 
 from queue import Queue
@@ -58,11 +60,37 @@ Raw Form
   }
 """
 
+def is_indexed_bool_ref(ref_name: str | None) -> bool:
+    if not ref_name:
+        return False
 
+    try:
+        _, _ = [int(val) for val in ref_name.split("_")]
+    except ValueError:
+        return False
 
+    return True
 
+def is_determined_cell_value(solver, decl, model) -> bool:
+    """Check if var's value in model is the only possible value."""
+    var = decl()          # Call it to get the Z3 expression
+    val = model[decl]         # Get the value
+    if val is None or not is_indexed_bool_ref(decl.name()):
+        # Only check cell values the model has deduced
+        return False
+
+    solver.push()
+    solver.add(var != val)
+    result = solver.check()
+    solver.pop()
+
+    return result != sat
 
 class PuzzleValidator:
+
+    VALIDATION_ERROR_CELL_LOGIC = "Validation error: Cell at {cell_index} is marked {cell_label} but prover logic says it should be {model_label}."
+    VALIDATION_ERROR_UNREACHABLE_CELLS = "Not all cells are reachable with the provided hints."
+
     def __init__(self, puzzle_state: PuzzleState):
         self.puzzle_state = puzzle_state
         self.dimens = len(puzzle_state), len(puzzle_state[0])
@@ -79,11 +107,12 @@ class PuzzleValidator:
             row = []
             grid.append(row)
             for c in range(cols):
-                ref = Bool(f"{r}_{c}")
+                label = f"{r}_{c}"
+                ref = Bool(label)
                 row.append(ref)
                 cell = self.puzzle_state[r][c]
                 if cell.status != Status.UNKNOWN:
-                    self.solver.add(ref == (cell.status == Status.CRIMINAL))
+                    self.solver.assert_and_track(ref == (cell.status == Status.CRIMINAL), cell.label)
 
         return grid
 
@@ -103,27 +132,40 @@ class PuzzleValidator:
         queue = self._init_cell_queue()
         has_new_clue = False
 
+        determined_refs = []
+
         while not queue.empty() or has_new_clue:
             has_new_clue = False
             cell = queue.get()
             result = eval_cell_hint_dsl(cell, self.puzzle_state, self.constraint_grid)
-            self.solver.add(result.constraint)
+            self.solver.assert_and_track(result.constraint, result.hint_text)
 
             if self.solver.check() != sat:
-                message = "\n  - ".join([str(c) for c in self.solver.unsat_core()])
+                message = " AND ".join([str(c) for c in self.solver.unsat_core()])
                 return PuzzleValidationResult(
                     valid=False,
-                    invalid_message=f"Unsolvable. Conflicting constraints:\n{message}"
+                    invalid_message=f"Conflicting constraints: {message}"
                 )
 
             model = self.solver.model()
-            for ref in model:
+            determined_refs = [ref for ref in model.decls() if is_determined_cell_value(self.solver, ref, model)]
+            for ref in determined_refs:
                 row, col = [int(c) for c in ref.name().split("_")]
-                model_value = model[ref]
+                model_value = bool(model[ref])
                 puzzle_cell = self.puzzle_state[row][col]
 
                 if puzzle_cell.status == Status.UNKNOWN:
-                    puzzle_cell.status = Status.INNOCENT if model_value else Status.CRIMINAL
+                    if puzzle_cell.is_criminal is not model_value:
+                            return PuzzleValidationResult(
+                                valid=False,
+                                invalid_message=self.VALIDATION_ERROR_CELL_LOGIC.format(
+                                    cell_index=f'({row},{col})',
+                                    cell_label='criminal' if puzzle_cell.is_criminal else 'innocent',
+                                    model_label='criminal' if model_value else 'innocent',
+                                )
+                            )
+                    puzzle_cell.status = Status.CRIMINAL if model_value else Status.INNOCENT
+
                     if puzzle_cell.orig_hint is not None:
                         has_new_clue = True
                         queue.put(puzzle_cell)
@@ -132,11 +174,13 @@ class PuzzleValidator:
                     or (puzzle_cell.status == Status.INNOCENT and model_value):
                     raise ValueError("Shouldn't happen")
 
+
+
         check = self.solver.check()
-        if len(self.solver.model()) != math.prod(self.dimens):
+        if len(determined_refs) != math.prod(self.dimens):
             return PuzzleValidationResult(
                 valid=False,
-                invalid_message=f"Not all cells were revealed by end of validation"
+                invalid_message=self.VALIDATION_ERROR_UNREACHABLE_CELLS
             )
 
         return PuzzleValidationResult(valid=True)

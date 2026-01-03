@@ -35,6 +35,13 @@ class PuzzleCell(BaseModel):
     paths: List[List[int]] = []
     is_criminal: bool = False
 
+    @property
+    def label(self):
+        if self.status == Status.INNOCENT:
+            return f"{self.name} is innocent"
+
+        return f"{self.name} is criminal"
+
 class GeneratedPuzzleCell(BaseModel):
     name: str
     profession: str
