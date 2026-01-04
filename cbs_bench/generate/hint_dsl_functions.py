@@ -641,7 +641,23 @@ class NumberOfTraits(DSLFuncEvaluator):
         return f"There are {self.count} {self.trait.hint_text()} in total"
 
     def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
-        pass
+        # Flatten the constraint grid to get all cells
+        all_cells = []
+        for row in constraint_grid:
+            all_cells.extend(row)
+
+        # Use If pattern to count the trait
+        # For criminals: If(c, 1, 0) - count 1 when c is True (criminal), 0 otherwise
+        # For innocents: If(c, 0, 1) - count 1 when c is False (innocent), 0 otherwise
+        true_point = int(self.trait == Trait.CRIMINAL)
+        false_point = int(self.trait == Trait.INNOCENT)
+
+        constraint = Sum([If(c, true_point, false_point) for c in all_cells]) == self.count
+
+        return DSLEvalResult(
+            constraint=constraint,
+            hint_text=self.hint_text()
+        )
 
 
 class NumberOfTraitsInUnit(DSLFuncEvaluator):
@@ -652,14 +668,28 @@ class NumberOfTraitsInUnit(DSLFuncEvaluator):
         self.trait = trait
         self.count = count
 
-    def hint_text(self) -> str:
+    def hint_text(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> str:
         if self.count == 1:
             return f"There is only one {self.trait.value} {self.unit.hint_text()}"
         else:
             return f"There are {self.count} {self.trait.hint_text()} {self.unit.hint_text()}"
 
     def eval(self, puzzle_state: PuzzleState, constraint_grid: list[list[BoolRef]]) -> DSLEvalResult:
-        pass
+        # Get cells from the unit
+        cells = self.unit.cells(puzzle_state, constraint_grid)
+
+        # Use If pattern to count the trait
+        # For criminals: If(c, 1, 0) - count 1 when c is True (criminal), 0 otherwise
+        # For innocents: If(c, 0, 1) - count 1 when c is False (innocent), 0 otherwise
+        true_point = int(self.trait == Trait.CRIMINAL)
+        false_point = int(self.trait == Trait.INNOCENT)
+
+        constraint = Sum([If(c, true_point, false_point) for c in cells]) == self.count
+
+        return DSLEvalResult(
+            constraint=constraint,
+            hint_text=self.hint_text(puzzle_state, constraint_grid)
+        )
 
 
 class OddNumberOfTraitsInUnit(DSLFuncEvaluator):

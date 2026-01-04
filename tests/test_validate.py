@@ -134,7 +134,7 @@ class TestPuzzleValidator:
         actual = validator.validate()
         expected = PuzzleValidationResult(
             valid=False,
-            invalid_message='Conflicting constraints: All rows have at least three innocents AND Aaron is criminal',
+            invalid_message='Conflicting constraints: Aaron is criminal AND All rows have at least three innocents',
         )
 
         assert actual == expected

@@ -34,9 +34,9 @@ class TestEvalCellHintDSL:
         expected = DSLEvalResult(
             hint_text="All rows have at least two innocents",
             constraint=And([
-                Sum([c for c in simple_3x3_constraint_grid[0]]) == 1,
-                Sum([c for c in simple_3x3_constraint_grid[1]]) == 1,
-                Sum([c for c in simple_3x3_constraint_grid[2]]) == 1,
+                Sum([If(c, 0, 1) for c in simple_3x3_constraint_grid[0]]) >= 2,
+                Sum([If(c, 0, 1) for c in simple_3x3_constraint_grid[1]]) >= 2,
+                Sum([If(c, 0, 1) for c in simple_3x3_constraint_grid[2]]) >= 2,
             ])
         )
 
@@ -54,9 +54,9 @@ class TestEvalCellHintDSL:
         expected = DSLEvalResult(
             hint_text="All rows have at least two criminals",
             constraint=And([
-                Sum([c for c in simple_3x3_constraint_grid[0]]) == 2,
-                Sum([c for c in simple_3x3_constraint_grid[1]]) == 2,
-                Sum([c for c in simple_3x3_constraint_grid[2]]) == 2,
+                Sum([If(c, 1, 0) for c in simple_3x3_constraint_grid[0]]) >= 2,
+                Sum([If(c, 1, 0) for c in simple_3x3_constraint_grid[1]]) >= 2,
+                Sum([If(c, 1, 0) for c in simple_3x3_constraint_grid[2]]) >= 2,
             ])
         )
 

@@ -484,27 +484,120 @@ class TestBothTraitsAreNeighborsInUnit:
 
 
 class TestNumberOfTraits:
-    @pytest.mark.skip(reason="eval() not yet implemented")
     def test_number_of_criminals(self, simple_3x3_puzzle_state, simple_3x3_constraint_grid):
         """Test that there are exactly N criminals in total"""
         const = NumberOfTraits(Trait.CRIMINAL, 5)
 
         result = const.eval(simple_3x3_puzzle_state, simple_3x3_constraint_grid)
 
-        # Should sum all cells and check == 5
+        # 3x3 grid has 9 cells total
+        # For criminals: If(c, 1, 0) counts True values
+        all_cells = [
+            simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[0][2],
+            simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[1][1], simple_3x3_constraint_grid[1][2],
+            simple_3x3_constraint_grid[2][0], simple_3x3_constraint_grid[2][1], simple_3x3_constraint_grid[2][2],
+        ]
+        expected_constraint = Sum([If(c, 1, 0) for c in all_cells]) == 5
+
+        assert result.constraint.eq(expected_constraint)
         assert result.hint_text == "There are 5 criminals in total"
+
+    def test_number_of_innocents(self, simple_3x3_puzzle_state, simple_3x3_constraint_grid):
+        """Test that there are exactly N innocents in total"""
+        const = NumberOfTraits(Trait.INNOCENT, 4)
+
+        result = const.eval(simple_3x3_puzzle_state, simple_3x3_constraint_grid)
+
+        # 3x3 grid has 9 cells total
+        # For innocents: If(c, 0, 1) counts False values (innocents)
+        all_cells = [
+            simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[0][2],
+            simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[1][1], simple_3x3_constraint_grid[1][2],
+            simple_3x3_constraint_grid[2][0], simple_3x3_constraint_grid[2][1], simple_3x3_constraint_grid[2][2],
+        ]
+        expected_constraint = Sum([If(c, 0, 1) for c in all_cells]) == 4
+
+        assert result.constraint.eq(expected_constraint)
+        assert result.hint_text == "There are 4 innocents in total"
 
 
 class TestNumberOfTraitsInUnit:
-    @pytest.mark.skip(reason="eval() not yet implemented")
-    def test_number_of_criminals_in_unit(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
-        """Test exact count of criminals in a unit"""
+    def test_number_of_criminals_in_between_unit(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+        """Test exact count of criminals in a between unit"""
+        # Pair(0, 2) is row 0, cols 0-2 (indices 0, 1, 2)
         unit = Unit(UnitType.BETWEEN.value, Pair(0, 2))
         const = NumberOfTraitsInUnit(unit, Trait.CRIMINAL, 2)
 
         result = const.eval(simple_4x5_puzzle_state, simple_4x5_constraint_grid)
 
-        assert "There are 2 criminals" in result.hint_text
+        # Between unit contains cells [0, 1, 2]
+        cells = [simple_4x5_constraint_grid[0][0], simple_4x5_constraint_grid[0][1], simple_4x5_constraint_grid[0][2]]
+        expected_constraint = Sum([If(c, 1, 0) for c in cells]) == 2
+
+        assert result.constraint.eq(expected_constraint)
+        assert result.hint_text == "There are 2 criminals None"
+
+    def test_single_innocent_in_unit(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
+        """Test single innocent in a unit (tests singular hint text)"""
+        # Pair(1, 5) is col 1, rows 0-1 (indices 1, 5)
+        unit = Unit(UnitType.BETWEEN.value, Pair(1, 5))
+        const = NumberOfTraitsInUnit(unit, Trait.INNOCENT, 1)
+
+        result = const.eval(simple_4x5_puzzle_state, simple_4x5_constraint_grid)
+
+        # Between unit contains cells [1, 5]
+        cells = [simple_4x5_constraint_grid[0][1], simple_4x5_constraint_grid[1][1]]
+        expected_constraint = Sum([If(c, 0, 1) for c in cells]) == 1
+
+        assert result.constraint.eq(expected_constraint)
+        assert result.hint_text == "There is only one innocent None"
+
+    def test_number_of_criminals_in_row(self, simple_3x3_puzzle_state, simple_3x3_constraint_grid):
+        """Test exact count of criminals in a row"""
+        unit = Unit(UnitType.ROW.value, 0)
+        const = NumberOfTraitsInUnit(unit, Trait.CRIMINAL, 2)
+
+        result = const.eval(simple_3x3_puzzle_state, simple_3x3_constraint_grid)
+
+        # Row 0 contains all cells in first row
+        cells = [simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[0][2]]
+        expected_constraint = Sum([If(c, 1, 0) for c in cells]) == 2
+
+        assert result.constraint.eq(expected_constraint)
+        assert "2 criminals" in result.hint_text
+
+    def test_number_of_innocents_in_column(self, simple_3x3_puzzle_state, simple_3x3_constraint_grid):
+        """Test exact count of innocents in a column"""
+        unit = Unit(UnitType.COL.value, 1)
+        const = NumberOfTraitsInUnit(unit, Trait.INNOCENT, 2)
+
+        result = const.eval(simple_3x3_puzzle_state, simple_3x3_constraint_grid)
+
+        # Column 1 contains cells from all rows
+        cells = [simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[1][1], simple_3x3_constraint_grid[2][1]]
+        expected_constraint = Sum([If(c, 0, 1) for c in cells]) == 2
+
+        assert result.constraint.eq(expected_constraint)
+        assert "2 innocents" in result.hint_text
+
+    def test_number_of_criminals_in_neighbor_unit(self, simple_3x3_puzzle_state, simple_3x3_constraint_grid):
+        """Test exact count of criminals among neighbors"""
+        # Cell 4 (center of 3x3) has 8 neighbors
+        unit = Unit(UnitType.NEIGHBOR.value, 4)
+        const = NumberOfTraitsInUnit(unit, Trait.CRIMINAL, 4)
+
+        result = const.eval(simple_3x3_puzzle_state, simple_3x3_constraint_grid)
+
+        # Neighbors of cell 4 are all cells except the center
+        expected_neighbors = [
+            simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[0][2],
+            simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[1][2],
+            simple_3x3_constraint_grid[2][0], simple_3x3_constraint_grid[2][1], simple_3x3_constraint_grid[2][2],
+        ]
+        expected_constraint = Sum([If(c, 1, 0) for c in expected_neighbors]) == 4
+
+        assert result.constraint.eq(expected_constraint)
+        assert "4 criminals" in result.hint_text
 
 
 class TestMinNumberOfTraitsInUnit:
