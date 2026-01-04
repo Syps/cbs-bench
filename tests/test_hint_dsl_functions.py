@@ -92,10 +92,9 @@ class TestColHelper:
 
 
 def test_idx_to_coord():
-    assert idx_to_coord(1, dimens=(3,3)) == (0, 1)
+    assert idx_to_coord(1, dimens=(3, 3)) == (0, 1)
     assert idx_to_coord(4, dimens=(3, 3)) == (1, 1)
     assert idx_to_coord(8, dimens=(3, 3)) == (2, 2)
-
 
 
 class TestBetweenHelper:
@@ -193,6 +192,7 @@ class TestProfessionIndexesHelper:
         result = profession_bools(Profession.PAINTER, simple_4x5_puzzle_state, simple_4x5_constraint_grid)
 
         assert len(result) == 0
+
 
 class TestAllTraitsAreNeighborsInUnit:
     def test_all_criminals_above_connected(self, simple_4x5_puzzle_state, simple_4x5_constraint_grid):
@@ -421,9 +421,12 @@ class TestAllUnitsHaveAtLeastNTraits:
 
         # Each row should have exactly 2 criminals (Sum([cells]) == 2)
         expected_constraint = And(
-            Sum([simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[0][2]]) == 2,
-            Sum([simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[1][1], simple_3x3_constraint_grid[1][2]]) == 2,
-            Sum([simple_3x3_constraint_grid[2][0], simple_3x3_constraint_grid[2][1], simple_3x3_constraint_grid[2][2]]) == 2
+            Sum([simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[0][1],
+                 simple_3x3_constraint_grid[0][2]]) >= 2,
+            Sum([simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[1][1],
+                 simple_3x3_constraint_grid[1][2]]) >= 2,
+            Sum([simple_3x3_constraint_grid[2][0], simple_3x3_constraint_grid[2][1],
+                 simple_3x3_constraint_grid[2][2]]) >= 2
         )
 
         assert result.constraint.eq(expected_constraint)
@@ -436,12 +439,24 @@ class TestAllUnitsHaveAtLeastNTraits:
 
         # Each column should have innocents = total - 1 (Sum([cells]) == 3 - 1)
         expected_constraint = And(
-            Sum([simple_3x3_constraint_grid[0][0], simple_3x3_constraint_grid[1][0], simple_3x3_constraint_grid[2][0]]) == 2,
-            Sum([simple_3x3_constraint_grid[0][1], simple_3x3_constraint_grid[1][1], simple_3x3_constraint_grid[2][1]]) == 2,
-            Sum([simple_3x3_constraint_grid[0][2], simple_3x3_constraint_grid[1][2], simple_3x3_constraint_grid[2][2]]) == 2
+            (
+                    If(simple_3x3_constraint_grid[0][0], 0, 1) +
+                    If(simple_3x3_constraint_grid[1][0], 0, 1) +
+                    If(simple_3x3_constraint_grid[2][0], 0, 1)
+            ) >= 1,
+            (
+                    If(simple_3x3_constraint_grid[0][1], 0, 1) +
+                    If(simple_3x3_constraint_grid[1][1], 0, 1) +
+                    If(simple_3x3_constraint_grid[2][1], 0, 1)
+            ) >= 1,
+            (
+                    If(simple_3x3_constraint_grid[0][2], 0, 1) +
+                    If(simple_3x3_constraint_grid[1][2], 0, 1) +
+                    If(simple_3x3_constraint_grid[2][2], 0, 1)
+            ) >= 1,
         )
 
-        assert result.constraint.eq(expected_constraint)
+        assert str(result.constraint) == str(expected_constraint)
 
 
 class TestBothTraitsAreNeighborsInUnit:
@@ -737,7 +752,3 @@ class TestNProfessionsHaveTraitInDir:
         result = const.eval(simple_4x5_puzzle_state, simple_4x5_constraint_grid)
 
         assert isinstance(result, DSLEvalResult)
-
-
-
-
